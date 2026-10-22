@@ -1,0 +1,69 @@
+services:
+  optiplex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 64
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?Set DISCORD_TOKEN in Coolify}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      APPLICATION_ID: ${APPLICATION_ID:-1562643787510063217}
+      CLIENT_ID: ${CLIENT_ID:-}
+      GUILD_ID: ${GUILD_ID:-1562082957022204006}
+      CHANNEL_ID: ${CHANNEL_ID:-1562960345860153444}
+      HOST_NAME: ${HOST_NAME:-optiplex}
+      STATS_INTERVAL_MINUTES: ${STATS_INTERVAL_MINUTES:-15}
+      HOST_PROC_PATH: /host-metrics/proc
+      TEMP_SENSOR_PATH: /host-metrics/hwmon
+      NODE_OPTIONS: --max-old-space-size=128
+      TZ: Europe/Brussels
+    # Only these host counters and Intel CPU sensors are exposed, read-only.
+    # No host PID/network namespace, Docker socket, root filesystem or public ports.
+    volumes:
+      - type: bind
+        source: /proc/stat
+        target: /host-metrics/proc/stat
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/meminfo
+        target: /host-metrics/proc/meminfo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/loadavg
+        target: /host-metrics/proc/loadavg
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/uptime
+        target: /host-metrics/proc/uptime
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CORETEMP_HOST_PATH:-/sys/devices/platform/coretemp.0/hwmon}
+        target: /host-metrics/hwmon
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

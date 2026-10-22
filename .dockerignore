@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+dist
+coverage
+.env
+.env.*
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea
+.vscode
+.secrets
+*.pem
+*.key
+test
+docs
