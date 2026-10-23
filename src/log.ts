@@ -1,4 +1,4 @@
-// Discord errors can contain request bodies, bot tokens and webhook URLs.
+// Discord errors can contain request bodies and bot tokens.
 // Deliberately log only selected diagnostic identifiers, never the raw error.
 export function safeError(error: unknown): Record<string, string | number> {
   const result: Record<string, string | number> = { kind: 'UnknownError' };

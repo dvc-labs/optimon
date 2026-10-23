@@ -4,7 +4,7 @@ A small Discord companion for the optiplex home lab. **Version 0.1.0.**
 
 - `/about` shows the bot version, features and uptime.
 - One embed in `#optiplex` when the bot process connects to Discord.
-- Optional webhook snapshots every **15 minutes**: host uptime, CPU usage,
+- The bot posts snapshots every **15 minutes** in `#optiplex`: host uptime, CPU usage,
   memory, load averages, CPU package temperature and individual core temperatures.
 - Consistent blue embeds, timestamps and a shared `Optiplex • v0.1.0 • dvc.labs` footer.
 
@@ -25,14 +25,14 @@ Set secrets in **Coolify runtime environment variables**, never Git:
 | Variable | Purpose |
 | --- | --- |
 | `DISCORD_TOKEN` | Required bot token from Developer Portal → Bot. Secret. |
-| `WEBHOOK_URL` | Optional channel webhook URL. Secret. Blank disables scheduled reports. |
 | `APPLICATION_ID` | `1562643787510063217`; `CLIENT_ID` is an optional alias for the same ID. |
 | `GUILD_ID` | `1562082957022204006` |
 | `CHANNEL_ID` | `1562960345860153444` |
 | `HOST_NAME` | Display name; defaults to `optiplex`. |
 | `STATS_INTERVAL_MINUTES` | Defaults to `15`; allowed range `1`–`1440`. |
 
-The IDs are public identifiers, not credentials. No Discord client secret is needed.
+The IDs are public identifiers, not credentials. The bot token is the only required
+secret; startup messages and scheduled snapshots use the same bot and channel.
 The first scheduled report arrives after one full interval. This is a snapshot,
 not a fifteen-minute average; CPU usage is explicitly labelled as a one-second sample.
 

@@ -29,7 +29,7 @@ export function aboutEmbed(config: Config): EmbedBuilder {
       { name: 'Monitoring', value: config.hostName, inline: true },
       { name: 'Bot uptime', value: formatDuration(process.uptime()), inline: true },
       { name: 'Features', value: 'Startup notifications • CPU temperatures • CPU usage • Memory • Host uptime' },
-      { name: 'Scheduled reports', value: config.webhookUrl ? `Every ${config.intervalMinutes} minutes via webhook` : 'Disabled — no webhook configured' },
+      { name: 'Scheduled reports', value: `Every ${config.intervalMinutes} minutes in <#${config.channelId}>` },
       { name: 'Source', value: '[dvc-labs/optiplex](https://github.com/dvc-labs/optiplex)' },
     );
 }

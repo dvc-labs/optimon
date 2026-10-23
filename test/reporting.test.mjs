@@ -5,12 +5,11 @@ import { aboutEmbed, statsEmbed, FOOTER } from '../dist/embeds.js';
 import { loadConfig } from '../dist/config.js';
 import { isHealthy } from '../dist/health.js';
 import { scheduleReports } from '../dist/scheduler.js';
-import { WebhookReporter } from '../dist/webhook.js';
+import { BotReporter } from '../dist/reporter.js';
 
 const config = loadConfig({
   DISCORD_TOKEN: 'not-a-real-token', APPLICATION_ID: '1562643787510063217',
   GUILD_ID: '1562082957022204006', CHANNEL_ID: '1562960345860153444',
-  WEBHOOK_URL: `https://discord.com/api/webhooks/1562960345860153444/${'x'.repeat(60)}`,
 });
 const snapshot = {
   capturedAt: new Date('2026-10-23T00:00:00Z'), hostUptime: 90000, botUptime: 30,
@@ -25,33 +24,61 @@ test('about, startup and stats share branding and distinguish host and process u
     assert.equal(payload.footer.text, FOOTER);
     assert.ok(payload.timestamp);
     assert.ok(!JSON.stringify(payload).includes(config.token));
-    assert.ok(!JSON.stringify(payload).includes(config.webhookUrl));
   }
   const startup = embeds[1].toJSON();
   assert.match(startup.description, /deployment or container restart/);
   assert.equal(startup.fields.find((field) => field.name === 'Host uptime').value, '1d 1h 0m');
   assert.equal(startup.fields.find((field) => field.name === 'Bot uptime').value, '0h 0m');
+  assert.equal(embeds[0].toJSON().fields.find((field) => field.name === 'Scheduled reports').value,
+    `Every 15 minutes in <#${config.channelId}>`);
 });
 
-test('webhook verification rejects a different channel before posting any metrics', async () => {
+test('bot delivery rejects missing, mismatched, DM and unsendable channels before posting metrics', async () => {
   let sends = 0;
-  const reporter = new WebhookReporter(config, {
-    fetch: async () => ({ channel_id: '1562960345860153445', guild_id: config.guildId }),
-    send: async () => { sends++; }, destroy() {},
-  });
-  await assert.rejects(reporter.send(statsEmbed(snapshot, config)), /target does not match/);
+  const channel = {
+    id: config.channelId, guildId: config.guildId,
+    isSendable: () => true, isDMBased: () => false,
+    send: async () => { sends++; },
+  };
+  for (const invalid of [null, { ...channel, id: '1562960345860153445' },
+    { ...channel, guildId: '1562082957022204007' },
+    { ...channel, isDMBased: () => true }, { ...channel, isSendable: () => false }]) {
+    const reporter = new BotReporter({ channels: { fetch: async () => invalid } }, config);
+    await assert.rejects(reporter.send(statsEmbed(snapshot, config)), { name: 'ReportChannelMismatch' });
+  }
   assert.equal(sends, 0);
 });
 
-test('verified reports disable mentions and send one consistent embed', async () => {
+test('startup and scheduled snapshots use the bot channel and disable mentions', async () => {
   const payloads = [];
-  const reporter = new WebhookReporter(config, {
-    fetch: async () => ({ channel_id: config.channelId, guild_id: config.guildId }),
-    send: async (payload) => { payloads.push(payload); }, destroy() {},
-  });
+  const fetchedIds = [];
+  const channel = {
+    id: config.channelId, guildId: config.guildId,
+    isSendable: () => true, isDMBased: () => false,
+    send: async (payload) => { payloads.push(payload); },
+  };
+  const reporter = new BotReporter({ channels: { fetch: async (id) => {
+    fetchedIds.push(id); return channel;
+  } } }, config);
+  await reporter.send(statsEmbed(snapshot, config, true));
   await reporter.send(statsEmbed(snapshot, config));
-  assert.deepEqual(payloads[0].allowedMentions, { parse: [] });
-  assert.equal(payloads[0].embeds.length, 1);
+  assert.deepEqual(fetchedIds, [config.channelId, config.channelId]);
+  assert.equal(payloads.length, 2);
+  for (const payload of payloads) {
+    assert.deepEqual(payload.allowedMentions, { parse: [] });
+    assert.equal(payload.embeds.length, 1);
+    assert.equal(payload.embeds[0].toJSON().footer.text, FOOTER);
+  }
+});
+
+test('bot delivery propagates permission failures so the scheduler can log and retry later', async () => {
+  const failure = Object.assign(new Error('Missing permissions'), { code: 50013 });
+  const reporter = new BotReporter({ channels: { fetch: async () => ({
+    id: config.channelId, guildId: config.guildId,
+    isSendable: () => true, isDMBased: () => false,
+    send: async () => { throw failure; },
+  }) } }, config);
+  await assert.rejects(reporter.send(statsEmbed(snapshot, config)), failure);
 });
 
 test('report scheduling waits a full interval, never overlaps and stops cleanly', async () => {

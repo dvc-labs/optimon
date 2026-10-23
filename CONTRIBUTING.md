@@ -10,7 +10,7 @@ Keep changes small and explain the resulting behaviour in a pull request.
 4. For a release, update `package.json`, its lockfile and the README version.
    The bot's version and shared footer are derived from `package.json`.
 
-Preserve the shared embed builder, explicit host/bot uptime distinction, optional
-webhook behaviour and least-privilege deployment. Never add public ports, a Docker
+Preserve the shared embed builder, explicit host/bot uptime distinction, delivery
+through the bot and least-privilege deployment. Never add public ports, a Docker
 socket mount or privileged mode just to collect a metric. Document additional
 host reads and permissions before proposing them.

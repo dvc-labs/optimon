@@ -5,7 +5,6 @@ export interface Config {
   applicationId: string;
   guildId: string;
   channelId: string;
-  webhookUrl: string | null;
   hostName: string;
   intervalMinutes: number;
   procPath: string;
@@ -23,17 +22,6 @@ function snowflake(value: string, key: string): string {
     throw new Error(`${key} must be a Discord ID stored as a string.`);
   }
   return value;
-}
-
-export function validateWebhookUrl(value: string): string {
-  let url: URL;
-  try { url = new URL(value); } catch { throw new Error('WEBHOOK_URL must be a Discord webhook URL.'); }
-  if (url.protocol !== 'https:' || url.hostname !== 'discord.com' || url.port ||
-      url.username || url.password || url.hash || url.search ||
-      !/^\/api\/(?:v\d+\/)?webhooks\/\d{17,20}\/[A-Za-z0-9_-]{20,}$/.test(url.pathname)) {
-    throw new Error('WEBHOOK_URL must be an HTTPS discord.com webhook URL without query parameters.');
-  }
-  return url.href;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -60,7 +48,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     applicationId: snowflake(applicationId, 'APPLICATION_ID'),
     guildId: snowflake(required(env, 'GUILD_ID'), 'GUILD_ID'),
     channelId: snowflake(required(env, 'CHANNEL_ID'), 'CHANNEL_ID'),
-    webhookUrl: env.WEBHOOK_URL?.trim() ? validateWebhookUrl(env.WEBHOOK_URL.trim()) : null,
     hostName,
     intervalMinutes: Number(interval),
     procPath,

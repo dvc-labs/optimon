@@ -8,9 +8,9 @@ import { aboutEmbed, baseEmbed, statsEmbed } from './embeds.js';
 import { HEALTH_PATH } from './health.js';
 import { log, safeError } from './log.js';
 import { collectSnapshot } from './metrics.js';
+import { BotReporter } from './reporter.js';
 import { scheduleReports } from './scheduler.js';
 import { VERSION } from './version.js';
-import { WebhookReporter } from './webhook.js';
 
 // Local convenience only: Docker excludes .env and receives runtime variables from Coolify.
 if (existsSync('.env')) loadEnvFile('.env');
@@ -25,7 +25,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] },
   rest: { timeout: 15_000, retries: 2 },
 });
-const reporter = config.webhookUrl ? new WebhookReporter(config) : null;
+const reporter = new BotReporter(client, config);
 let initialized = false;
 let shuttingDown = false;
 let stopReports: (() => void) | null = null;
@@ -51,7 +51,6 @@ async function shutdown(code: number): Promise<void> {
   heartbeat();
   const deadline = setTimeout(() => process.exit(code), 5000);
   deadline.unref();
-  reporter?.destroy();
   await client.destroy();
   process.exit(code);
 }
@@ -70,17 +69,13 @@ client.once(Events.ClientReady, (ready) => {
     ready.user.setActivity(config.hostName, { type: ActivityType.Watching });
     initialized = true;
     heartbeat();
-    log('ready', { version: VERSION, host: config.hostName, reportsEnabled: reporter !== null });
+    log('ready', { version: VERSION, host: config.hostName, reportIntervalMinutes: config.intervalMinutes });
     try {
-      const channel = await ready.channels.fetch(config.channelId);
-      if (!channel || !channel.isSendable() || channel.isDMBased() || channel.guildId !== config.guildId) {
-        throw Object.assign(new Error('Invalid notification channel.'), { name: 'NotificationChannelMismatch' });
-      }
       const snapshot = await collectSnapshot(config.procPath, config.sensorPath);
       if (snapshot.unavailable.length) log('metrics_unavailable', { readings: snapshot.unavailable });
-      await channel.send({ embeds: [statsEmbed(snapshot, config, true)], allowedMentions: { parse: [] } });
+      if (!shuttingDown) await reporter.send(statsEmbed(snapshot, config, true));
     } catch (error) { log('startup_notification_failed', safeError(error)); }
-    if (reporter && !shuttingDown) {
+    if (!shuttingDown) {
       stopReports = scheduleReports(async () => {
         const snapshot = await collectSnapshot(config.procPath, config.sensorPath);
         if (snapshot.unavailable.length) log('metrics_unavailable', { readings: snapshot.unavailable });

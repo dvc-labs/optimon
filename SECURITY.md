@@ -4,21 +4,21 @@ Security fixes target the latest release on `main`; the initial supported versio
 
 Report vulnerabilities privately using this repository's **Security → Report a
 vulnerability** option if enabled. Otherwise contact the repository owner through
-an existing private contact route. Do not post bot tokens, webhook URLs, host
+an existing private contact route. Do not post bot tokens, host
 credentials or detailed exploit instructions in a public issue.
 
 ## Credentials and access
 
-- `DISCORD_TOKEN` and `WEBHOOK_URL` are secrets. Store them as Coolify runtime
-  variables. `.env` files are excluded from Git and the Docker build context.
-- If a credential is exposed, reset the bot token or delete/recreate the webhook,
+- `DISCORD_TOKEN` is a secret. Store it as a Coolify runtime
+  variable. `.env` files are excluded from Git and the Docker build context.
+- If a credential is exposed, reset the bot token,
   update Coolify and redeploy. Removing a leaked value from a commit is not revocation.
 - Discord IDs are public identifiers. The bot does not require a client secret,
   Administrator permission, privileged Gateway intents or Manage Webhooks permission.
-- The webhook must belong to the configured guild and channel. Its destination
-  is checked before reports are posted. Messages disable automatic mentions.
+- Startup and scheduled reports use the bot's configured guild and channel.
+  The destination is checked before each send. Messages disable automatic mentions.
 - Runtime error logs contain selected error identifiers, not raw Discord errors,
-  request bodies, authorization headers or webhook URLs.
+  request bodies, authorization headers or request URLs.
 
 ## Host metrics
 
