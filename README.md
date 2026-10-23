@@ -6,7 +6,7 @@ A small Discord companion for the optiplex home lab. **Version 0.1.0.**
 - One embed in `#optiplex` when the bot process connects to Discord.
 - The bot posts snapshots every **15 minutes** in `#optiplex`: host uptime, CPU usage,
   memory, load averages, CPU package temperature and individual core temperatures.
-- Consistent blue embeds, timestamps and a shared `Optiplex • v0.1.0 • dvc.labs` footer.
+- Consistent blue embeds, timestamps and a shared footer.
 
 A bot start can also be a deployment or container restart. Notifications therefore
 show **host uptime and bot uptime separately**. A bot running on optiplex cannot
@@ -14,20 +14,14 @@ report a power or internet outage while that server is offline.
 
 ## Setup
 
-Follow **[the Discord and Coolify setup guide](docs/setup.md)**. Deploy the repository
-with the **Docker Compose** build strategy on the **optiplex** server, using
-`compose.yaml`. The selected read-only host mounts are required for host metrics.
-The bot uses outbound Discord connections; no domain, public port, Cloudflare
-Tunnel or running Coolify proxy is required.
-
 Set secrets in **Coolify runtime environment variables**, never Git:
 
 | Variable | Purpose |
 | --- | --- |
 | `DISCORD_TOKEN` | Required bot token from Developer Portal → Bot. Secret. |
-| `APPLICATION_ID` | `1562643787510063217`; `CLIENT_ID` is an optional alias for the same ID. |
-| `GUILD_ID` | `1562082957022204006` |
-| `CHANNEL_ID` | `1562960345860153444` |
+| `APPLICATION_ID` | `CLIENT_ID` is an optional alias for the same ID. |
+| `GUILD_ID` | `x` |
+| `CHANNEL_ID` | `x` |
 | `HOST_NAME` | Display name; defaults to `optiplex`. |
 | `STATS_INTERVAL_MINUTES` | Defaults to `15`; allowed range `1`–`1440`. |
 
