@@ -94,10 +94,10 @@ thermal state, so an ongoing hot condition may produce a fresh warning.
 
 ## Development
 
-Use Node.js **24.17 or newer within the 24.x line**:
+Use Node.js **24.22.1 or newer within the 24.x LTS line**:
 
 ```bash
-npm ci --ignore-scripts
+npm ci --ignore-scripts --engine-strict
 cp .env.example .env
 # Fill .env locally, then:
 npm test
@@ -112,6 +112,12 @@ the host sensor source. Keep the parent `hwmon` directory mounted so changing
 `hwmonN` numbering is handled. Tests use fixtures and mocked Discord delivery;
 they do not need credentials or send messages.
 Run only one deployed instance for this bot token to avoid duplicate notifications.
+
+The project uses TypeScript **7.x** and Node **24.x** declarations. Keep optional
+dependencies enabled: the compiler uses a platform-specific native package. Build
+tools are removed from the runtime Docker image. Dependabot keeps the supported
+Node line updated; runtime major upgrades need a coordinated review of Docker,
+the engine requirement, CI and Node declarations.
 
 ## Project
 
