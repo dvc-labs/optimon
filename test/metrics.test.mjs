@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseCpu, cpuUsage, parseMemory, parseLoad, parseUptime,
+import { parseCpu, cpuUsage, parseMemory, parseSwap, parseLoad, parseUptime,
   readTemperatures, collectSnapshot } from '../dist/metrics.js';
 
 test('CPU sampling excludes double-counted guest counters and includes iowait in idle', () => {
@@ -59,6 +59,17 @@ test('missing host mounts produce explicit unavailable metrics, never container 
   assert.equal(snapshot.hostUptime, null);
   assert.equal(snapshot.cpuPercent, null);
   assert.equal(snapshot.load, null);
-  assert.equal(snapshot.unavailable.length, 5);
+  assert.equal(snapshot.swap, null);
+  assert.equal(snapshot.unavailable.length, 6);
   assert.ok(snapshot.botUptime >= 0);
+});
+
+test('swap reports usage and handles hosts with no configured swap', () => {
+  const swap = parseSwap('SwapTotal: 4194304 kB\nSwapFree: 3145728 kB\n');
+  assert.equal(swap.total, 4 * 1024 ** 3);
+  assert.equal(swap.used, 1024 ** 3);
+  assert.equal(swap.percent, 25);
+  assert.deepEqual(parseSwap('SwapTotal: 0 kB\nSwapFree: 0 kB'), { total: 0, free: 0, used: 0, percent: 0 });
+  assert.throws(() => parseSwap('SwapTotal: 1 kB\nSwapFree: 2 kB'));
+  assert.throws(() => parseSwap('SwapTotal: 1 kB'));
 });

@@ -4,6 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 export interface CpuCounters { total: bigint; idle: bigint; cores: number }
 export interface Memory { total: number; available: number; used: number; percent: number }
+export interface Swap { total: number; free: number; used: number; percent: number }
 export interface Temperature { label: string; celsius: number }
 export interface Snapshot {
   capturedAt: Date;
@@ -12,6 +13,7 @@ export interface Snapshot {
   cpuPercent: number | null;
   cores: number | null;
   memory: Memory | null;
+  swap: Swap | null;
   load: number[] | null;
   temperatures: Temperature[];
   unavailable: string[];
@@ -52,6 +54,25 @@ export function parseMemory(text: string): Memory {
   }
   const used = total - available;
   return { total, available, used, percent: used / total * 100 };
+}
+
+export function parseSwap(text: string): Swap {
+  const values = new Map<string, number>();
+  for (const line of text.split('\n')) {
+    const match = /^(SwapTotal|SwapFree):\s+(\d+)\s+kB$/.exec(line.trim());
+    if (match) values.set(match[1]!, Number(match[2]) * 1024);
+  }
+  const total = values.get('SwapTotal');
+  const free = values.get('SwapFree');
+  if (total === undefined || free === undefined || !Number.isSafeInteger(total) ||
+      !Number.isSafeInteger(free) || free > total) throw new Error('Invalid swap counters.');
+  const used = total - free;
+  return { total, free, used, percent: total === 0 ? 0 : used / total * 100 };
+}
+
+export function hottestTemperature(snapshot: Snapshot): number | null {
+  return snapshot.temperatures.length
+    ? Math.max(...snapshot.temperatures.map((sensor) => sensor.celsius)) : null;
 }
 
 export function parseUptime(text: string): number {
@@ -97,7 +118,8 @@ export async function collectSnapshot(procPath: string, sensorPath: string): Pro
   async function read<T>(name: string, operation: () => Promise<T>): Promise<T | null> {
     try { return await operation(); } catch { unavailable.push(name); return null; }
   }
-  const [cpu, memory, hostUptime, load, temperatures] = await Promise.all([
+  const memoryText = readFile(join(procPath, 'meminfo'), 'utf8');
+  const [cpu, memory, swap, hostUptime, load, temperatures] = await Promise.all([
     read('CPU usage', async () => {
       const before = parseCpu(await readFile(join(procPath, 'stat'), 'utf8'));
       await delay(1000);
@@ -106,7 +128,8 @@ export async function collectSnapshot(procPath: string, sensorPath: string): Pro
       if (percent === null) throw new Error('CPU counters did not advance.');
       return { percent, cores: after.cores || null };
     }),
-    read('Memory', async () => parseMemory(await readFile(join(procPath, 'meminfo'), 'utf8'))),
+    read('Memory', async () => parseMemory(await memoryText)),
+    read('Host swap', async () => parseSwap(await memoryText)),
     read('Host uptime', async () => parseUptime(await readFile(join(procPath, 'uptime'), 'utf8'))),
     read('Load averages', async () => parseLoad(await readFile(join(procPath, 'loadavg'), 'utf8'))),
     read('CPU temperatures', async () => {
@@ -117,7 +140,7 @@ export async function collectSnapshot(procPath: string, sensorPath: string): Pro
   ]);
   return {
     capturedAt: new Date(), hostUptime, botUptime: process.uptime(),
-    cpuPercent: cpu?.percent ?? null, cores: cpu?.cores ?? null, memory, load,
+    cpuPercent: cpu?.percent ?? null, cores: cpu?.cores ?? null, memory, swap, load,
     temperatures: temperatures ?? [], unavailable,
   };
 }
