@@ -1,6 +1,6 @@
 # Optiplex
 
-A small Discord companion for the optiplex home lab. **Version 0.2.2.**
+A small Discord companion for the optiplex home lab. **Version 0.2.3.**
 
 - One embed when the bot connects, then host snapshots every **15 minutes**.
 - Live CPU, RAM, **swap**, uptime, load averages and Intel CPU temperatures.
@@ -43,6 +43,7 @@ all three public IDs are required explicitly; the Compose file has no personal I
 | `GUILD_ID` | Discord server ID for command registration and report delivery. |
 | `CHANNEL_ID` | Reporting channel ID within that server. |
 | `ADMIN_ID` | Optional **Discord user ID** allowed to use owner controls; blank disables them. |
+| `AUDIT_RETENTION_DAYS` | Command records expire after `90` days; `0` keeps them indefinitely. |
 | `HOST_NAME` | Display name; defaults to `optiplex`. |
 | `STATS_INTERVAL_MINUTES` | Defaults to `15`; allowed range `1`–`1440`. |
 | `THERMAL_ALERTS_ENABLED` | `true` by default; set `false` to disable thermal notices. |
@@ -53,8 +54,8 @@ all three public IDs are required explicitly; the Compose file has no personal I
 Background samples run about once a minute. Interactive commands share a snapshot
 cache of up to **15 seconds** and do not add extra history samples. History stores
 **every background sample**, committed immediately and restored after restarts.
-Only the recent RAM cache is capped at **1440 samples / 24 hours**. Queries show
-min/average/peak readings and
+History queries run in a read-only worker with a **60-second result cache**; the
+bot keeps no separate RAM history. Queries show min/average/peak readings and
 24 time buckets. Gaps stay visible; graphs use a fixed 0–100 scale and temperatures
 above 100 °C saturate the graph while their exact values remain in the summary.
 These are periodic samples, not continuous measurements or interval averages.
@@ -66,6 +67,19 @@ SQLite WAL mode, full synchronous commits and a **250 ms busy timeout** support
 concurrent readers without rewriting the whole archive every minute. Do not put
 this database on NFS, SMB or another network filesystem. Run one bot instance per volume.
 
+Command audit rows expire after **90 days** by default, checked at startup and
+about hourly. Set `AUDIT_RETENTION_DAYS=0` before upgrading to retain them indefinitely.
+Metrics remain indefinite. The legacy JSON reader stays available for skipped upgrades.
+
+## Backups and recovery
+
+In the bot container terminal, run `npm run backup` before R2/volume backups. It
+validates the snapshot and keeps `optiplex.backup.sqlite` plus one verified previous
+generation. Check a file with `npm run backup -- --verify /app/data/optiplex.backup.sqlite`.
+See [backup and restore instructions](BACKUPS.md), including stopping the bot and
+removing stale live WAL/SHM files safely before a restore. Same-volume copies do
+not protect against SSD failure. Older R2 backups keep audit IDs until they expire.
+
 ## External outage monitoring
 
 Optionally set `HEARTBEAT_URL` to a Healthchecks.io check or an Uptime Kuma push
@@ -73,7 +87,11 @@ monitor hosted **outside optiplex and your home network**. Configure a one-minut
 expected interval and a grace period of about three minutes, plus notifications in
 that service. The bot sends a bounded HTTPS GET after each usable background
 sample while connected to Discord; no metrics are sent. Redirects are refused.
-Pausing reports keeps these pings and thermal alerts running.
+Pausing reports keeps these pings and thermal alerts running. Treat this as a
+**bot + sampling + Discord availability check**: a Discord outage also stops pings.
+Docker restarts an exited process; marking a running container unhealthy does not
+restart it. This release adds no automatic hung-process watchdog. An independent
+host/network check can distinguish a host outage from a Discord-only failure.
 
 ## Development
 

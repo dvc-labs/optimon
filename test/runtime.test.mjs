@@ -4,6 +4,7 @@ import { MessageFlags } from 'discord.js';
 import { ExternalHeartbeat } from '../dist/heartbeat.js';
 import { MonitorRuntime } from '../dist/runtime.js';
 import { TelemetryStore } from '../dist/telemetry.js';
+import { querySummary, queryComparison } from '../dist/history-query.js';
 import { config, ownerId, snapshot } from './fixtures.mjs';
 
 function deferred() {
@@ -51,8 +52,14 @@ async function fixture(t, overrides = {}) {
       temperatures: [{ label: 'Package id 0', celsius: temperature }],
     });
   };
+  const archive = {
+    summary: async (minutes) => querySummary(telemetry.db, minutes, now),
+    compare: async (minutes) => queryComparison(telemetry.db, minutes, now),
+    close: async () => {},
+  };
   const runtime = new MonitorRuntime(configuration, {
     telemetry,
+    archive,
     gateway,
     reporter,
     collect,
@@ -100,6 +107,7 @@ async function fixture(t, overrides = {}) {
   }
   return {
     runtime,
+    archive,
     telemetry,
     gateway,
     reporter,
@@ -124,7 +132,6 @@ test('post-ready wiring registers, samples, persists, updates presence and posts
   assert.equal(f.runtime.ready, true);
   assert.deepEqual(f.events, ['register', 'collect', 'activity', 'send']);
   assert.equal(f.telemetry.status().metricCount, 1);
-  assert.equal(f.runtime.history.size, 1);
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0].title, 'Optiplex monitor is online');
   assert.deepEqual(
@@ -263,6 +270,9 @@ test('shutdown stops scheduling immediately, drains in-flight delivery, then flu
     await gate.promise;
     f.events.push('send-done');
   };
+  f.archive.close = async () => {
+    f.events.push('reader-close');
+  };
   const flush = f.telemetry.flush.bind(f.telemetry);
   f.telemetry.flush = () => {
     f.events.push('flush');
@@ -283,7 +293,7 @@ test('shutdown stops scheduling immediately, drains in-flight delivery, then flu
   assert.equal(await f.runtime.dispatch(f.interaction('stats')), false);
   gate.resolve();
   await Promise.all([pending, stopped]);
-  assert.deepEqual(f.events.slice(-4), ['send-done', 'flush', 'close', 'destroy']);
+  assert.deepEqual(f.events.slice(-5), ['send-done', 'reader-close', 'flush', 'close', 'destroy']);
   await f.runtime.stop();
   assert.equal(f.events.filter((event) => event === 'close').length, 1);
 });
@@ -306,7 +316,6 @@ test('shutdown during collection drains it without writing or sending after stor
   gate.resolve();
   await Promise.all([started, stopped]);
   assert.equal(f.sent.length, 0);
-  assert.equal(f.runtime.history.size, 0);
   assert.equal(f.jobs.length, 0);
   assert.equal(f.events.at(-1), 'destroy');
 });
@@ -380,4 +389,36 @@ test('an application ID mismatch or failed registration does not start reporting
   await assert.rejects(failed.runtime.start(), /registration failure/);
   assert.equal(failed.jobs.length, 0);
   assert.equal(failed.telemetry.status().metricCount, 0);
+});
+
+test('startup and hourly audit maintenance expire old command records while metrics persist', async (t) => {
+  const f = await fixture(t);
+  f.telemetry.recordMetrics([
+    { at: f.now() - 400 * 86400_000, cpu: 1, memory: 2, temperature: 30 },
+  ]);
+  f.telemetry.startCommand({
+    id: 'old',
+    command: 'stats',
+    actorId: '123',
+    guildId: config().guildId,
+    channelId: null,
+    startedAt: f.now() - 91 * 86400_000,
+  });
+  f.telemetry.finishCommand('old', 'ok');
+  await f.runtime.start();
+  assert.equal(f.telemetry.status().commandCount, 0);
+  assert.equal(f.telemetry.status().metricCount, 2);
+  assert.ok(f.logs.some((entry) => entry.event === 'audit_records_expired' && entry.records === 1));
+  f.telemetry.startCommand({
+    id: 'late-backfill',
+    command: 'stats',
+    actorId: '123',
+    guildId: config().guildId,
+    channelId: null,
+    startedAt: f.now() - 91 * 86400_000,
+  });
+  for (let i = 0; i < 60; i++) f.advance();
+  await f.jobs[0].task();
+  assert.equal(f.telemetry.status().commandCount, 0);
+  assert.equal(f.telemetry.status().metricCount, 3);
 });

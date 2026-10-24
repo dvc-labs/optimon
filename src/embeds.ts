@@ -4,8 +4,10 @@ import type { Snapshot } from './metrics.js';
 import { hottestTemperature } from './metrics.js';
 import type { ReportStatus } from './controls.js';
 import type { HistorySummary, MetricSummary } from './history.js';
-import type { HistoryStorageStatus } from './storage.js';
-import type { CommandAudit, HistoryComparison } from './telemetry.js';
+import type { TelemetryStatus } from './telemetry.js';
+import { QUERY_CACHE_MS } from './history-reader.js';
+import type { CommandAudit } from './telemetry.js';
+import type { HistoryComparison } from './history-query.js';
 import type { ExternalHeartbeatStatus } from './heartbeat.js';
 import { THERMAL_WARN_C, THERMAL_RECOVER_C, type ThermalEvent } from './monitoring.js';
 import { VERSION } from './version.js';
@@ -161,7 +163,7 @@ export function helpEmbed(): EmbedBuilder {
         name: 'How monitoring works',
         value:
           'One background sample about every minute; interactive readings can be cached for 15 seconds. ' +
-          'The disk archive keeps all samples and command metadata. Only the recent cache stays in RAM. ' +
+          'Metric history stays on disk. History queries use a worker and a 60-second result cache. ' +
           'Thermal alerts continue during a report pause.',
       },
     );
@@ -185,8 +187,16 @@ export function uptimeEmbed(snapshot: Snapshot, config: Config): EmbedBuilder {
     );
 }
 
+function formatWindow(minutes: number): string {
+  return minutes >= 10080 ? `${minutes / 1440}d` : `${minutes / 60}h`;
+}
+function signedDelta(value: number): string {
+  const rounded = Number(value.toFixed(1));
+  return `${rounded > 0 ? '+' : ''}${rounded.toFixed(1)}`;
+}
+
 export function historyEmbed(history: HistorySummary): EmbedBuilder {
-  const embed = baseEmbed(`Optiplex · Last ${history.minutes / 60}h`).setDescription(
+  const embed = baseEmbed(`Optiplex · Last ${formatWindow(history.minutes)}`).setDescription(
     history.count
       ? `${history.count} periodic samples in this window.\n` +
           '24 equal time buckets, oldest → newest; `·` means no reading. ' +
@@ -283,10 +293,9 @@ export interface Diagnostics {
   heapUsed: number;
   heapTotal: number;
   gatewayMs: number;
-  historySize: number;
   reports: ReportStatus;
   now: number;
-  historyStorage: HistoryStorageStatus;
+  historyStorage: TelemetryStatus;
   heartbeat?: ExternalHeartbeatStatus;
 }
 export function diagnosticsEmbed(
@@ -307,8 +316,8 @@ export function diagnosticsEmbed(
       },
       { name: 'Bot uptime', value: formatDuration(process.uptime()), inline: true },
       {
-        name: 'Recent RAM cache',
-        value: `${data.historySize} / 1440 samples · up to 24h`,
+        name: 'History queries',
+        value: `Read-only worker · cache up to ${QUERY_CACHE_MS / 1000}s`,
         inline: true,
       },
       {
@@ -321,14 +330,13 @@ export function diagnosticsEmbed(
         ].join('\n'),
       },
       {
-        name: 'Archive · no automatic expiry',
+        name: 'Metrics · no automatic expiry',
         value: [
-          `${data.historyStorage.metricCount ?? data.historySize} metric samples · ` +
-            `${data.historyStorage.commandCount ?? 0} command records`,
+          `${data.historyStorage.metricCount} metric samples`,
           `Oldest sample: ${data.historyStorage.firstAt ? timestamp(data.historyStorage.firstAt, 'F') : 'None yet'}`,
-          `Pending samples: ${data.historyStorage.pendingSamples ?? 0} · ` +
-            `Unsaved samples dropped: ${data.historyStorage.droppedSamples ?? 0}`,
-          `Corruption recoveries: ${data.historyStorage.recoveries ?? 0}`,
+          `Pending samples: ${data.historyStorage.pendingSamples} · ` +
+            `Unsaved samples dropped: ${data.historyStorage.droppedSamples}`,
+          `Corruption recoveries: ${data.historyStorage.recoveries}`,
         ].join('\n'),
       },
       {
@@ -355,6 +363,10 @@ export function diagnosticsEmbed(
         value:
           data.reports.lastReportAt === null ? 'None yet' : timestamp(data.reports.lastReportAt),
       },
+      {
+        name: 'Command audit retention',
+        value: `${data.historyStorage.commandCount} records · ${config.auditRetentionDays === 0 ? 'no automatic expiry' : `${config.auditRetentionDays} days`}`,
+      },
       { name: 'Report delivery failures', value: String(data.reports.failures), inline: true },
       {
         name: 'Thermal delivery failures',
@@ -363,7 +375,7 @@ export function diagnosticsEmbed(
       },
       {
         name: 'Command audit failures',
-        value: String(data.historyStorage.auditFailures ?? 0),
+        value: String(data.historyStorage.auditFailures),
         inline: true,
       },
       {
@@ -386,7 +398,9 @@ export function diagnosticsEmbed(
 
 export function comparisonEmbed(comparison: HistoryComparison): EmbedBuilder {
   const { current, previous } = comparison;
-  const embed = baseEmbed(`Optiplex · Compare ${current.minutes / 60}h windows`).setDescription(
+  const embed = baseEmbed(
+    `Optiplex · Compare ${formatWindow(current.minutes)} windows`,
+  ).setDescription(
     'Current window versus the immediately preceding window. Values are averages of periodic samples; gaps can affect comparisons.',
   );
   for (const [label, key, unit] of [
@@ -401,7 +415,7 @@ export function comparisonEmbed(comparison: HistoryComparison): EmbedBuilder {
       value:
         a && b
           ? `${b.mean.toFixed(1)}${unit} → ${a.mean.toFixed(1)}${unit} · ` +
-            `Δ ${(a.mean - b.mean).toFixed(1)}${key === 'temperature' ? ' °C' : ' percentage points'}`
+            `Δ ${signedDelta(a.mean - b.mean)}${key === 'temperature' ? ' °C' : ' percentage points'}`
           : 'Both windows need readings before a comparison is available.',
     });
   }

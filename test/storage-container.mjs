@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import { pathToFileURL } from 'node:url';
 import { backupDatabase } from './dist/backup.js';
-import { HistoryFileStore } from './dist/storage.js';
+import { ArchiveReader } from './dist/history-reader.js';
 import { TelemetryStore } from './dist/telemetry.js';
 
 assert.notEqual(process.getuid(), 0, 'the image must keep its non-root user');
@@ -12,11 +13,17 @@ const path = '/app/data/optiplex.sqlite';
 const legacy = '/app/data/history.json';
 const now = Date.now();
 if (process.env.HISTORY_SMOKE_PHASE === 'save') {
-  const file = new HistoryFileStore(legacy);
-  await file.load();
-  await file.save([{ at: now - 2 * 86400_000, cpu: 10, memory: 20, temperature: 30 }]);
+  await writeFile(
+    legacy,
+    JSON.stringify({
+      version: 1,
+      points: [{ at: now - 2 * 86400_000, cpu: 10, memory: 20, temperature: 30 }],
+    }),
+    { mode: 0o600 },
+  );
 }
 const store = await TelemetryStore.open(path, legacy);
+const reader = new ArchiveReader(path);
 assert.equal(store.db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
 assert.equal(store.db.prepare('PRAGMA synchronous').get().synchronous, 2);
 assert.equal(store.db.prepare('PRAGMA busy_timeout').get().timeout, 250);
@@ -43,14 +50,16 @@ if (process.env.HISTORY_SMOKE_PHASE === 'save') {
     2,
     'a replacement container must retain the entire archive',
   );
-  assert.equal(store.recent(now).length, 1, 'only recent data enters the RAM cache');
-  assert.equal(store.summary(10080, now).count, 2);
-  assert.equal(store.summary(1440, now).cpu.mean, 12.5);
+  assert.equal((await reader.summary(10080)).count, 2);
+  assert.equal((await reader.summary(1440)).cpu.mean, 12.5);
   assert.equal(store.recentCommands()[0].outcome, 'ok');
   assert.equal(store.status().commandCount, 1);
 }
+await backupDatabase(path);
 const snapshot = await backupDatabase(path);
-const backup = new DatabaseSync(snapshot, { readOnly: true });
+const snapshotUri = pathToFileURL(snapshot);
+snapshotUri.searchParams.set('immutable', '1');
+const backup = new DatabaseSync(snapshotUri.href, { readOnly: true });
 assert.equal(backup.prepare('SELECT COUNT(*) AS n FROM metrics').get().n, 2);
 assert.equal(backup.prepare('SELECT outcome FROM commands').get().outcome, 'ok');
 backup.close();
@@ -58,6 +67,7 @@ assert.equal(store.status().healthy, true);
 assert.equal((await stat(path)).mode & 0o777, 0o600);
 assert.equal((await stat(snapshot)).mode & 0o777, 0o600);
 assert.equal((await stat(`${legacy}.migrated`)).mode & 0o777, 0o600);
+await reader.close();
 store.close();
 console.log(
   `${process.env.HISTORY_SMOKE_PHASE}: SQLite WAL archive, migration, audit and backup verified; non-root and read-only root`,

@@ -4,7 +4,8 @@ import { handleCommand, isKnownCommand, type CommandContext } from './commands.j
 import { Cooldown, ReportControls } from './controls.js';
 import { baseEmbed, statsEmbed, thermalEmbed } from './embeds.js';
 import { ExternalHeartbeat } from './heartbeat.js';
-import { History } from './history.js';
+import { pointFromSnapshot } from './history.js';
+import type { HistoryReader } from './history-query.js';
 import { log, safeError } from './log.js';
 import { hottestTemperature, type Snapshot } from './metrics.js';
 import { MetricsCache, SAMPLE_INTERVAL_MS, ThermalWatch } from './monitoring.js';
@@ -24,6 +25,7 @@ export interface RuntimeGateway {
 interface RuntimeOptions {
   gateway: RuntimeGateway;
   telemetry: TelemetryStore;
+  archive: HistoryReader;
   reporter: Pick<BotReporter, 'send'>;
   collect: () => Promise<Snapshot>;
   heartbeat?: ExternalHeartbeat;
@@ -33,7 +35,6 @@ interface RuntimeOptions {
 }
 
 export class MonitorRuntime {
-  readonly history = new History();
   readonly reports = new ReportControls();
   readonly thermal = new ThermalWatch();
   readonly cache: MetricsCache;
@@ -46,6 +47,8 @@ export class MonitorRuntime {
   private initialized = false;
   private startup: Promise<void> | null = null;
   private shutdown: Promise<void> | null = null;
+  private nextAuditCleanup = 0;
+  private readonly now: () => number;
   private stopSamples: (() => void) | null = null;
   private stopReports: (() => void) | null = null;
 
@@ -57,7 +60,7 @@ export class MonitorRuntime {
     this.schedule = options.schedule ?? scheduleReports;
     this.heartbeat = options.heartbeat ?? new ExternalHeartbeat(config.heartbeatUrl);
     const now = options.now ?? Date.now;
-    this.history.restore(options.telemetry.recent(now()), now());
+    this.now = now;
     this.cache = new MetricsCache(async () => {
       const snapshot = await options.collect();
       if (snapshot.unavailable.length)
@@ -67,14 +70,17 @@ export class MonitorRuntime {
     this.context = {
       config,
       cache: this.cache,
-      history: this.history,
       reports: this.reports,
       reporter: options.reporter,
       cooldown: new Cooldown(10_000),
       manualCooldown: new Cooldown(60_000, 1),
       gatewayPing: () => options.gateway.ping(),
       historyStorage: options.telemetry,
-      archive: options.telemetry,
+      archive: {
+        summary: (minutes) => options.archive.summary(minutes),
+        compare: (minutes) => options.archive.compare(minutes),
+        recentCommands: (limit) => options.telemetry.recentCommands(limit),
+      },
       heartbeatStatus: () => this.heartbeat.status(),
     };
   }
@@ -150,11 +156,23 @@ export class MonitorRuntime {
   private async sampleInternal(): Promise<void> {
     const snapshot = await this.cache.getSnapshot();
     if (this.stopping) return;
-    const point = this.history.record(snapshot);
+    const point = pointFromSnapshot(snapshot);
     try {
       this.options.telemetry.recordMetrics(point ? [point] : []);
     } catch (error) {
       this.logger('metric_archive_write_failed', safeError(error));
+    }
+    if (this.now() >= this.nextAuditCleanup) {
+      try {
+        const removed = this.options.telemetry.pruneCommands(
+          this.config.auditRetentionDays,
+          this.now(),
+        );
+        if (removed) this.logger('audit_records_expired', { records: removed });
+        this.nextAuditCleanup = this.now() + 3600_000;
+      } catch (error) {
+        this.logger('audit_retention_failed', safeError(error));
+      }
     }
     if (this.options.gateway.isReady()) {
       const temperature = hottestTemperature(snapshot);
@@ -288,6 +306,11 @@ export class MonitorRuntime {
     this.heartbeat.stop();
     this.shutdown = (async () => {
       while (this.tasks.size) await Promise.allSettled([...this.tasks]);
+      try {
+        await this.options.archive.close();
+      } catch (error) {
+        this.logger('history_reader_close_failed', safeError(error));
+      }
       try {
         this.options.telemetry.flush();
       } catch (error) {

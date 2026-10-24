@@ -10,9 +10,8 @@ import {
 } from 'discord.js';
 import { commandDefinitions, registerCommands, handleCommand } from '../dist/commands.js';
 import { Cooldown, ReportControls } from '../dist/controls.js';
-import { History } from '../dist/history.js';
 import { MetricsCache } from '../dist/monitoring.js';
-import { config, ownerId, snapshot } from './fixtures.mjs';
+import { config, ownerId, snapshot, historySummary, telemetryStatus } from './fixtures.mjs';
 
 function harness(settings = {}) {
   const configuration = config(settings);
@@ -20,7 +19,6 @@ function harness(settings = {}) {
   const sent = [];
   const context = {
     config: configuration,
-    history: new History(),
     reports: new ReportControls(),
     cache: new MetricsCache(async () => {
       events.push('read');
@@ -38,16 +36,13 @@ function harness(settings = {}) {
     historyStorage: {
       status: () => {
         events.push('storage-status');
-        return { healthy: true, lastSavedAt: Date.now() };
+        return telemetryStatus();
       },
     },
   };
   context.archive = {
-    summary: (minutes) => context.history.summary(minutes),
-    compare: () => ({
-      current: context.history.summary(1440),
-      previous: new History().summary(1440),
-    }),
+    summary: async (minutes) => historySummary({ minutes }),
+    compare: async () => ({ current: historySummary(), previous: historySummary() }),
     recentCommands: () => [],
   };
   context.heartbeatStatus = () => ({ enabled: false, lastSuccessAt: null, failures: 0 });
@@ -281,7 +276,6 @@ test('live stats acknowledge before collecting and commands do not add history s
   assert.equal(await pending, true);
   assert.deepEqual(events, ['defer', 'read', 'edit']);
   assert.deepEqual(request.calls[0][1], {});
-  assert.equal(context.history.size, 0);
 });
 
 test('about, help, history and Discord ping work without host readings', async () => {

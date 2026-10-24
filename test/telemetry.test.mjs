@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { backupDatabase } from '../dist/backup.js';
 import { HISTORY_LIMIT, HISTORY_WINDOWS } from '../dist/history.js';
-import { HistoryFileStore } from '../dist/storage.js';
+import { querySummary, queryComparison } from '../dist/history-query.js';
 import { TelemetryStore } from '../dist/telemetry.js';
 
 const now = Date.now();
@@ -34,7 +34,7 @@ async function fixture(t) {
   return { directory, path };
 }
 
-test('the archive retains every sample across restarts while the recent RAM input is bounded', async (t) => {
+test('the archive retains every sample across restarts without keeping a second RAM history', async (t) => {
   const { path } = await fixture(t);
   let store = await TelemetryStore.open(path);
   const values = Array.from({ length: HISTORY_LIMIT + 100 }, (_, i) => point(now - i * 60_000));
@@ -55,8 +55,7 @@ test('the archive retains every sample across restarts while the recent RAM inpu
     now - 400 * 86400_000,
     'even data older than the longest command window stays archived',
   );
-  assert.equal(store.recent(now).length, HISTORY_LIMIT);
-  const summary = store.summary(10080, now);
+  const summary = querySummary(store.db, 10080, now);
   assert.equal(summary.count, values.length - 1);
   assert.equal(summary.cpu.min, 12.3);
   assert.equal(summary.memory.max, 23.5);
@@ -67,14 +66,14 @@ test('the archive retains every sample across restarts while the recent RAM inpu
 test('v0.2.1 migration imports all retained JSON points once, including old readings, and preserves the source', async (t) => {
   const { directory, path } = await fixture(t);
   const legacy = join(directory, 'history.json');
-  const file = new HistoryFileStore(legacy);
-  await file.load();
-  await file.save([point(now - 3 * 86400_000), point()]);
+  await writeFile(
+    legacy,
+    JSON.stringify({ version: 1, points: [point(now - 3 * 86400_000), point()] }),
+  );
   const original = await readFile(legacy);
   let store = await TelemetryStore.open(path, legacy);
   assert.equal(store.status().metricCount, 2);
-  assert.equal(store.recent(now).length, 1);
-  assert.equal(store.summary(10080, now).count, 2);
+  assert.equal(querySummary(store.db, 10080, now).count, 2);
   store.close();
   assert.deepEqual(await readFile(`${legacy}.migrated`), original);
   store = await TelemetryStore.open(path, legacy);
@@ -116,9 +115,10 @@ test('SIGKILL during schema creation or on either side of the import commit leav
   for (const phase of ['schema', 'before-import-commit', 'after-import-commit']) {
     const { directory, path } = await fixture(t);
     const legacy = join(directory, 'history.json');
-    const file = new HistoryFileStore(legacy);
-    await file.load();
-    await file.save([point(now - 3 * 86400_000), point()]);
+    await writeFile(
+      legacy,
+      JSON.stringify({ version: 1, points: [point(now - 3 * 86400_000), point()] }),
+    );
     const original = await readFile(legacy);
     const child = spawnSync(
       process.execPath,
@@ -233,7 +233,7 @@ test('all comparison windows have distinct boundaries, bounded graph buckets and
         point(now, { cpu: 50 }),
         point(now + 1, { cpu: 99 }),
       ]);
-      const { current, previous } = store.compare(minutes, now);
+      const { current, previous } = queryComparison(store.db, minutes, now);
       assert.equal(previous.count, 2);
       assert.equal(previous.cpu.mean, 15);
       assert.equal(previous.temperature, null);
@@ -244,8 +244,8 @@ test('all comparison windows have distinct boundaries, bounded graph buckets and
       assert.equal(current.cpu.graph[23], '▅');
       assert.match(current.cpu.graph, /·/);
       assert.equal(current.memory.count, 1);
-      assert.equal(store.summary(minutes, now).count, current.count);
-      assert.throws(() => store.summary(42, now), { name: 'UnsupportedHistoryWindow' });
+      assert.equal(querySummary(store.db, minutes, now).count, current.count);
+      assert.throws(() => querySummary(store.db, 42, now), { name: 'UnsupportedHistoryWindow' });
     } finally {
       store.close();
     }
@@ -404,4 +404,33 @@ test('failed backup leaves a previous snapshot intact and cleans its temporary f
     (await readdir(directory)).some((name) => name.endsWith('.tmp')),
     false,
   );
+});
+
+test('audit retention deletes only records older than the boundary and never removes metrics', async (t) => {
+  const { path } = await fixture(t);
+  let store = await TelemetryStore.open(path);
+  const cutoff = now - 90 * 86400_000;
+  store.recordMetrics([point(now - 400 * 86400_000)]);
+  store.startCommand(command('old', { startedAt: cutoff - 1 }));
+  store.finishCommand('old', 'ok');
+  store.startCommand(command('boundary', { startedAt: cutoff }));
+  store.finishCommand('boundary', 'denied');
+  store.startCommand(command('recent', { startedAt: now }));
+  store.finishCommand('recent', 'failed');
+  assert.equal(store.pruneCommands(0, now), 0);
+  assert.equal(store.pruneCommands(90, now), 1);
+  assert.equal(store.pruneCommands(90, now), 0);
+  assert.equal(store.status().commandCount, 2);
+  assert.equal(store.status().metricCount, 1);
+  store.close();
+  store = await TelemetryStore.open(path);
+  try {
+    assert.deepEqual(
+      store.recentCommands().map((c) => c.id),
+      ['recent', 'boundary'],
+    );
+    assert.equal(store.status().metricCount, 1);
+  } finally {
+    store.close();
+  }
 });
