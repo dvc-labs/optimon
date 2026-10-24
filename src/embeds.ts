@@ -33,7 +33,7 @@ export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder
       { name: 'Version', value: `v${VERSION}`, inline: true },
       { name: 'Monitoring', value: config.hostName, inline: true },
       { name: 'Bot uptime', value: formatDuration(process.uptime()), inline: true },
-      { name: 'Features', value: 'Live stats • Swap usage • Uptime • 24h trends • Thermal alerts • Server moods\nTry `/optiplex help`.' },
+      { name: 'Features', value: 'Live stats • Swap usage • Uptime • 24h trends • Thermal alerts • Server moods\nTry `/help`.' },
       { name: 'Scheduled reports', value: reports?.pausedUntil
         ? `Paused until ${timestamp(reports.pausedUntil, 't')}`
         : `Every ${config.intervalMinutes} minutes in <#${config.channelId}>` },
@@ -70,9 +70,9 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
 export function helpEmbed(): EmbedBuilder {
   return baseEmbed('Optiplex · Command guide').setDescription('A tiny Dell with opinions and telemetry.')
     .addFields(
-      { name: 'Live readings', value: '`/optiplex stats` — host CPU, RAM, swap and temperatures.\n`/optiplex uptime` — separate host/bot uptime and estimated start times.' },
-      { name: 'Nerd corner', value: '`/optiplex history` — choose the last 1h, 6h or 24h.\n`/optiplex ping` — Discord heartbeat and API acknowledgement latency.\n`/optiplex vibe` — a playful take on the latest readings.' },
-      { name: 'Owner controls · private replies', value: '`/optiplex-admin diagnostics` — bot resources and reporting status.\n`/optiplex-admin snapshot` — post to the configured reporting channel.\n`/optiplex-admin pause` / `resume` — temporarily pause scheduled reports.' },
+      { name: 'Live readings', value: '`/stats` — host CPU, RAM, swap and temperatures.\n`/uptime` — separate host/bot uptime and estimated start times.' },
+      { name: 'Nerd corner', value: '`/history` — choose the last 1h, 6h or 24h.\n`/ping` — Discord heartbeat and API acknowledgement latency.\n`/vibe` — a playful take on the latest readings.' },
+      { name: 'Owner controls · private replies', value: '`/diagnostics` — bot resources and reporting status.\n`/snapshot` — post to the configured reporting channel.\n`/pause` / `/resume` — temporarily pause scheduled reports.' },
       { name: 'How monitoring works', value: 'Background samples about once a minute; on-demand readings can be cached for up to 15 seconds. History stays in memory for up to 24 hours and resets on restart. Thermal alerts keep running during a report pause.' },
     );
 }

@@ -5,7 +5,7 @@ import {
 } from 'discord.js';
 import { loadConfig } from './config.js';
 import { baseEmbed, statsEmbed, thermalEmbed } from './embeds.js';
-import { commandDefinitions, handleCommand, type CommandContext } from './commands.js';
+import { registerCommands, handleCommand, type CommandContext } from './commands.js';
 import { Cooldown, ReportControls } from './controls.js';
 import { History } from './history.js';
 import { HEALTH_PATH } from './health.js';
@@ -102,10 +102,7 @@ client.once(Events.ClientReady, (ready) => {
       await shutdown(1);
       return;
     }
-    // Upsert our commands in this guild; preserve any other application commands.
-    for (const command of commandDefinitions()) {
-      await ready.application.commands.create(command.toJSON(), config.guildId);
-    }
+    await registerCommands(ready.application.commands, config.guildId);
     if (shuttingDown) return;
     initialized = true;
     heartbeat();

@@ -15,21 +15,22 @@ report a power or internet outage while that server is offline.
 
 ## Commands
 
-Commands are registered in the configured guild at startup.
+Commands are registered in the configured guild at startup. The previous grouped
+commands are removed automatically after the replacements are registered.
 
 | Command | What it does |
 | --- | --- |
 | `/about` | Bot version, features and reporting schedule. |
-| `/optiplex stats` | Host snapshot, including swap usage. |
-| `/optiplex uptime` | Host/bot uptimes and estimated boot/start times. |
-| `/optiplex history hours:1` | CPU, RAM and temperature trends; choose `1`, `6` or `24` hours. |
-| `/optiplex ping` | Discord heartbeat and API acknowledgement latency. |
-| `/optiplex vibe` | The tiny Dell's current mood, based on actual readings. |
-| `/optiplex help` | A command and sampling guide. |
-| `/optiplex-admin diagnostics` | Private bot RAM/heap usage, snapshot freshness and reporting status. |
-| `/optiplex-admin snapshot` | Post a snapshot to the configured reporting channel now. |
-| `/optiplex-admin pause minutes:60` | Pause scheduled reports for 5–1440 minutes; default `60`. |
-| `/optiplex-admin resume` | Resume reports at the next normal reporting tick. |
+| `/stats` | Host snapshot, including swap usage. |
+| `/uptime` | Host/bot uptimes and estimated boot/start times. |
+| `/history hours:1` | CPU, RAM and temperature trends; choose `1`, `6` or `24` hours. |
+| `/ping` | Discord heartbeat and API acknowledgement latency. |
+| `/vibe` | The tiny Dell's current mood, based on actual readings. |
+| `/help` | A command and sampling guide. |
+| `/diagnostics` | Private bot RAM/heap usage, snapshot freshness and reporting status. |
+| `/snapshot` | Post a snapshot to the configured reporting channel now. |
+| `/pause minutes:60` | Pause scheduled reports for 5–1440 minutes; default `60`. |
+| `/resume` | Resume reports at the next normal reporting tick. |
 
 Public commands reply in the channel where they are used. Owner replies are always
 private; the explicit `snapshot` action posts publicly to the reporting channel.
@@ -60,7 +61,7 @@ For `ADMIN_ID`, enable Discord **User Settings → Advanced → Developer Mode**
 right-click your profile and select **Copy User ID**. It must be your user ID,
 not a role, application or guild ID. The bot checks this exact ID on every owner
 command; Discord Administrator alone does not authorize it. Discord initially
-restricts the owner command group to administrators. If your owner account is not
+restricts each owner command to administrators. If your owner account is not
 an administrator, grant that user access under **Server Settings → Integrations →
 Optiplex → Commands** as well.
 
