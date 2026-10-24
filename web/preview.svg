@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+ <defs><linearGradient id="fade" x2="0" y2="1"><stop stop-color="#26bcc5" stop-opacity=".18"/><stop offset="1" stop-color="#26bcc5" stop-opacity="0"/></linearGradient></defs>
+ <rect width="1200" height="630" fill="#000"/>
+ <path d="M65 100H1135M65 545H1135" stroke="#242428"/>
+ <text x="65" y="70" fill="#e8e9eb" font-family="DejaVu Sans,sans-serif" font-size="34" font-weight="bold">dvc<tspan fill="#26bcc5">.</tspan></text>
+ <text x="1070" y="67" fill="#92959e" font-family="DejaVu Sans,sans-serif" font-size="17">LABS</text>
+ <text x="65" y="165" fill="#9a9ba3" font-family="DejaVu Sans,sans-serif" letter-spacing="3" font-size="14">OPTIPLEX · THE HOME LAB, IN NUMBERS</text>
+ <text x="60" y="260" fill="#e8e9eb" font-family="DejaVu Sans,sans-serif" font-size="76" font-weight="bold" letter-spacing="-4">Small machine.</text>
+ <text x="60" y="353" fill="#26bcc5" font-family="DejaVu Sans,sans-serif" font-size="76" font-weight="bold" letter-spacing="-4">Big curiosity.</text>
+ <text x="65" y="410" fill="#a3a5ae" font-family="DejaVu Sans,sans-serif" font-size="21">A live look inside a little home lab.</text>
+ <path d="M685 472 L710 465 L735 468 L760 440 L785 451 L810 417 L835 433 L860 402 L885 414 L910 370 L935 395 L960 351 L985 376 L1010 345 L1035 354 L1060 323 L1085 344 L1110 315 L1135 332 L1135 525 L685 525Z" fill="url(#fade)"/>
+ <path d="M685 472 L710 465 L735 468 L760 440 L785 451 L810 417 L835 433 L860 402 L885 414 L910 370 L935 395 L960 351 L985 376 L1010 345 L1035 354 L1060 323 L1085 344 L1110 315 L1135 332" fill="none" stroke="#26bcc5" stroke-width="3"/>
+ <text x="65" y="590" fill="#a3a5ae" font-family="DejaVu Sans,sans-serif" font-size="17">CPU · MEMORY · TEMPERATURES · HISTORY</text>
+ <text x="935" y="590" fill="#e8e9eb" font-family="DejaVu Sans,sans-serif" font-size="17">dashboard by dvc.</text>
+</svg>

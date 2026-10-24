@@ -1,6 +1,6 @@
 # Optiplex
 
-A small Discord companion for the optiplex home lab. **Version 0.2.3.**
+A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.0.**
 
 - One embed when the bot connects, then host snapshots every **30 minutes**.
 - Live CPU, RAM, **swap**, uptime, load averages and Intel CPU temperatures.
@@ -8,6 +8,24 @@ A small Discord companion for the optiplex home lab. **Version 0.2.3.**
 - A live Discord activity showing temperature, CPU and RAM use.
 - Sustained-temperature warnings and recovery notices in the reporting channel.
 - Optional owner controls with private replies. All embeds share the release footer.
+- Responsive dashboard with live readings, 1h–365d/all-time charts and social previews.
+- The public container reads only a metrics export, with no Discord secrets or private database.
+
+## Web dashboard
+
+Follow [DASHBOARD.md](DASHBOARD.md) for the complete Coolify, Origin CA, Cloudflare
+Tunnel and DNS setup for `dashboard.davevancauwenberghe.be`. **Create the certificate
+files and set `DASHBOARD_PUBLIC_URL` before deploying v0.3.0.** Keep the existing
+Coolify resource and `history-data` volume. No Apache, PHP, router port forwarding,
+public proxy, PWA or visitor analytics are needed.
+
+The dashboard receives host CPU/RAM/swap/load/uptime/temperatures and aggregated
+CPU/RAM/temperature history only. It exports current readings each minute and
+96-bucket historical windows every five minutes. Missing buckets remain gaps;
+readings older than three minutes are marked stale. Past releases did not archive
+swap, load or individual cores, so those are live readings rather than fabricated history.
+The public API cannot query SQLite or expose command audits, Discord IDs, addresses,
+tokens, logs or host files. Metric retention and backups remain unchanged.
 
 A bot start can also be a deployment or container restart. Notifications therefore
 show **host uptime and bot uptime separately**. A bot running on optiplex cannot

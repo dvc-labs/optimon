@@ -456,3 +456,25 @@ test('failed audit cleanup backs off for fifteen minutes while sampling continue
   await f.jobs[0].task();
   assert.equal(attempts, 4);
 });
+
+test('public exporting receives host readings, and export failure does not stop alerts or sampling', async (t) => {
+  const published = [];
+  const f = await fixture(t, {
+    options: {
+      publisher: {
+        publish: async (value) => {
+          published.push(value);
+          throw new Error('export failed');
+        },
+      },
+    },
+  });
+  await f.runtime.start();
+  assert.equal(published.length, 1);
+  assert.equal(published[0].cpuPercent, 5);
+  assert.ok(f.logs.some((entry) => entry.event === 'dashboard_export_failed'));
+  assert.equal(f.runtime.ready, true);
+  assert.ok(f.sent.length > 0, 'Discord delivery survives projection failure');
+  await f.runtime.sample();
+  assert.equal(published.length, 2);
+});

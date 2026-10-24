@@ -1,9 +1,9 @@
 {
   "name": "@dvc-labs/optiplex",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
-  "description": "A small Discord monitor for the optiplex home server.",
+  "description": "A Discord monitor and public metrics dashboard for the optiplex home lab.",
   "type": "module",
   "engines": {
     "node": ">=24.22.1 <25"
@@ -11,11 +11,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "dashboard": "node dist/dashboard.js",
+    "dev": "node scripts/preview.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
     "lint": "oxlint --type-aware --max-warnings 0 src",
-    "format": "prettier --write src test package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
-    "format:check": "prettier --check src test package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
+    "format": "prettier --write src test web scripts package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
+    "format:check": "prettier --check src test web scripts package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
     "backup": "node dist/backup-cli.js"
   },
   "dependencies": {

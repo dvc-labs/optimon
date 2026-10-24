@@ -32,7 +32,7 @@ credentials or detailed exploit instructions in a public issue.
 
 ## Host metrics
 
-The Compose service runs as a non-root user with all Linux capabilities dropped,
+The private `optiplex` Compose service runs as a non-root user with all Linux capabilities dropped,
 no-new-privileges, a read-only root filesystem, bounded CPU/memory/process counts,
 and rotating Docker logs. It has no published ports, host networking, host PID
 namespace, Docker socket, or mount of the host root filesystem.
@@ -91,3 +91,35 @@ do not make arbitrary code safe. Missing readings are shown as unavailable.
 Keep the host, Docker, base image and dependencies updated. Review Dependabot PRs
 and rebuild/redeploy to pick up image updates. This process is a monitor, not a
 firewall, intrusion detector, outage-alert guarantee or replacement for backups.
+
+## Public dashboard boundary (v0.3.0)
+
+The bot exports explicitly selected host metrics to a separate local Docker volume.
+Live JSON and bounded aggregate history are atomic, regenerable projections, not
+archive backups. The dashboard mounts this volume read-only and never mounts the
+private SQLite/audit volume, host counters, Docker socket or bot secrets. It has a
+separate Docker network, non-root user, read-only root filesystem, resource caps
+and no added capabilities. The public image excludes Discord dependencies and
+private storage/configuration modules. Public requests cannot execute commands,
+query SQLite, change settings or access arbitrary paths. Both sides reconstruct
+the public data contract instead of spreading internal objects or forwarding
+unknown JSON properties. Oversized, symlinked or invalid exports are refused.
+
+The public endpoint intentionally exposes performance readings, history and static
+hardware details. It omits user/Discord IDs, audit records, addresses and secrets.
+Unknown sensor labels are omitted too. A process-local validated cache limits file
+reads; data becomes visibly stale after three minutes and unavailable at a cold
+start without an export. Browser requests are same-origin with no cookies,
+tracking or persistent visitor storage. Cloudflare processes network metadata as
+the delivery provider. Search noindex is a preference, not authentication.
+
+Compose serves verified origin HTTPS only on host loopback. Keep Coolify's public
+proxy/domain routing off for this resource and keep router/UFW inbound ports closed.
+Host-installed cloudflared provides the outbound tunnel. Its private token uses a
+root-owned file and systemd credentials; it receives only the public Origin CA
+roots, not the origin private key. Keep hostname/CA validation enabled. Certificate
+issuance, renewal and Cloudflare configuration are operator actions in
+[DASHBOARD.md](DASHBOARD.md). The dashboard process health check does not establish
+host health or automatically restart a hung process. Neither the home IP nor a
+Tailscale address belongs in dashboard DNS. A public web service still adds an
+application attack surface; isolation reduces impact rather than making it risk-free.

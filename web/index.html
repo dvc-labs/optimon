@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Optiplex — a little home lab by dvc.</title>
+    <meta
+      name="description"
+      content="A tiny Dell, a curious developer, and a live look under the hood. Explore the optiplex home lab's CPU, memory and temperature history."
+    />
+    <meta name="theme-color" content="#000000" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <link rel="canonical" href="__PUBLIC_URL__/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="dvc. labs" />
+    <meta property="og:title" content="Optiplex — small machine. Big curiosity." />
+    <meta
+      property="og:description"
+      content="A live look inside a little home lab. CPU, memory, temperatures and the story in the numbers."
+    />
+    <meta property="og:url" content="__PUBLIC_URL__/" />
+    <meta property="og:image" content="__PUBLIC_URL__/assets/preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Optiplex by dvc. — small machine, big curiosity, on a black background with a turquoise activity graph."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Optiplex — small machine. Big curiosity." />
+    <meta name="twitter:description" content="A live look inside a little home lab." />
+    <meta name="twitter:image" content="__PUBLIC_URL__/assets/preview.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+    <script type="module" src="/assets/dashboard.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to dashboard</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="wordmark" href="#" aria-label="dvc. labs home">dvc<span>.</span></a>
+        <span class="header-divider" aria-hidden="true"></span>
+        <a class="project-name" href="#">optiplex <span class="tag">LAB</span></a>
+        <nav aria-label="Dashboard navigation">
+          <a class="nav-active" href="#overview">Overview</a>
+          <a href="#history">History</a>
+          <a href="#system">System</a>
+        </nav>
+        <a
+          class="source-link"
+          href="https://github.com/dvc-labs/optiplex"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Source <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main" class="page">
+      <section class="hero" id="overview" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow"><span class="small-line"></span> THE HOME LAB, IN NUMBERS</p>
+          <h1 id="page-title">Small machine.<br /><span>Big curiosity.</span></h1>
+          <p class="hero-copy">
+            Meet <strong>optiplex</strong>. A tiny Dell doing its thing, from a corner of home.<br
+              class="desktop-break"
+            />
+            Here's a live look under the hood.
+          </p>
+        </div>
+        <div class="hero-meta">
+          <span class="status-badge" id="status-badge" data-state="waiting"
+            ><span class="status-dot"></span
+            ><span id="status-text" role="status">Connecting to the lab</span></span
+          >
+          <p class="updated">Last reading <time id="last-updated">—</time></p>
+          <div class="machine-mark" aria-hidden="true">
+            <span></span><i></i><i></i><i></i><b>3060</b>
+          </div>
+        </div>
+      </section>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <noscript
+        ><p class="notice">
+          JavaScript is needed to load the live readings and charts. No data is collected from your
+          browser.
+        </p></noscript
+      >
+      <section class="metrics-grid" aria-label="Latest host readings">
+        <article class="metric-card">
+          <div class="card-label">
+            <span class="metric-icon" aria-hidden="true">⌘</span> CPU usage
+            <span class="tiny-label">1s sample</span>
+          </div>
+          <p class="metric-value"><span id="cpu-value">—</span><small>%</small></p>
+          <progress id="cpu-bar" value="0" max="100" aria-label="CPU usage"></progress>
+          <p class="metric-detail">
+            <span id="cpu-cores">—</span> logical cores <span class="detail-end">i5-8400T</span>
+          </p>
+        </article>
+        <article class="metric-card">
+          <div class="card-label">
+            <span class="metric-icon" aria-hidden="true">▤</span> Memory
+            <span class="tiny-label">host RAM</span>
+          </div>
+          <p class="metric-value"><span id="memory-value">—</span><small>GiB</small></p>
+          <progress id="memory-bar" value="0" max="100" aria-label="Memory usage"></progress>
+          <p class="metric-detail">
+            <span id="memory-percent">—</span> used
+            <span class="detail-end" id="memory-total">— total</span>
+          </p>
+        </article>
+        <article class="metric-card">
+          <div class="card-label">
+            <span class="metric-icon" aria-hidden="true">♨</span> CPU temperature
+            <span class="tiny-label">hottest sensor</span>
+          </div>
+          <p class="metric-value"><span id="temp-value">—</span><small>°C</small></p>
+          <progress
+            id="temp-bar"
+            value="0"
+            max="100"
+            aria-label="CPU temperature in degrees Celsius"
+          ></progress>
+          <p class="metric-detail" id="thermal-state">
+            Waiting for sensors <span class="detail-end" id="thermal-threshold">— warning</span>
+          </p>
+        </article>
+        <article class="metric-card uptime-card">
+          <div class="card-label">
+            <span class="metric-icon" aria-hidden="true">◷</span> Host uptime
+          </div>
+          <p class="metric-value uptime-value" id="uptime-value">—</p>
+          <div class="uptime-line" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span
+            ><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <p class="metric-detail">Bot uptime <span class="detail-end" id="bot-uptime">—</span></p>
+        </article>
+      </section>
+      <section class="panel history-panel" id="history" aria-labelledby="history-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">THE LONGER VIEW</p>
+            <h2 id="history-title">A little history.</h2>
+          </div>
+          <div class="window-picker" role="group" aria-label="History period">
+            <button type="button" data-window="1h" aria-pressed="false">1h</button>
+            <button type="button" data-window="6h" aria-pressed="false">6h</button>
+            <button type="button" data-window="24h" aria-pressed="true">24h</button>
+            <button type="button" data-window="7d" aria-pressed="false">7d</button>
+            <button type="button" data-window="30d" aria-pressed="false">30d</button>
+            <button type="button" data-window="365d" aria-pressed="false">1y</button>
+            <button type="button" data-window="all" aria-pressed="false">All</button>
+          </div>
+        </div>
+        <div class="chart-toolbar">
+          <div class="metric-picker" role="group" aria-label="Chart metric">
+            <button type="button" data-metric="cpu" aria-pressed="true">
+              <span class="legend-dot"></span> CPU
+            </button>
+            <button type="button" data-metric="memory" aria-pressed="false">Memory</button>
+            <button type="button" data-metric="temperature" aria-pressed="false">
+              Temperature
+            </button>
+          </div>
+          <span class="chart-note" id="chart-note">96 time buckets · averages</span>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <svg
+            id="history-chart"
+            viewBox="0 0 1100 280"
+            role="img"
+            aria-labelledby="chart-title chart-description"
+            tabindex="0"
+          >
+            <title id="chart-title">CPU history</title>
+            <desc id="chart-description">
+              Waiting for recorded metrics. Use the period and metric buttons to explore history.
+            </desc>
+          </svg>
+          <div class="chart-tooltip" id="chart-tooltip" hidden></div>
+          <p class="chart-empty" id="chart-empty">Waiting for the first archive export…</p>
+        </div>
+        <div class="chart-axis"><span id="range-start">—</span><span id="range-end">—</span></div>
+        <div class="history-summary">
+          <div><span>Average</span><strong id="history-mean">—</strong></div>
+          <div><span>Minimum</span><strong id="history-min">—</strong></div>
+          <div><span>Peak</span><strong id="history-max">—</strong></div>
+          <div><span>Recorded samples</span><strong id="history-count">—</strong></div>
+        </div>
+        <div class="history-footnote">
+          <span id="coverage-note"
+            >Metrics are sampled once a minute. Empty periods stay empty.</span
+          ><span id="history-updated">Archive updates every 5 min</span>
+        </div>
+        <details class="data-details">
+          <summary>View chart data</summary>
+          <div class="table-scroll">
+            <table>
+              <caption id="data-caption">
+                Averages for each time bucket
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">CPU</th>
+                  <th scope="col">Memory</th>
+                  <th scope="col">Temperature</th>
+                </tr>
+              </thead>
+              <tbody id="chart-data"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+      <div class="lower-grid">
+        <section class="panel thermal-panel" aria-labelledby="thermal-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">KEEPING ITS COOL</p>
+              <h2 id="thermal-title">Inside the silicon.</h2>
+            </div>
+            <span class="subtle-badge">Intel coretemp</span>
+          </div>
+          <div id="temperature-list" class="temperature-list">
+            <p class="muted">Waiting for readable sensors…</p>
+          </div>
+          <p class="panel-note">Package and individual cores · readings from the host</p>
+        </section>
+        <section class="panel" aria-labelledby="resources-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">ROOM TO BREATHE</p>
+              <h2 id="resources-title">Memory &amp; load.</h2>
+            </div>
+          </div>
+          <div class="resource-row">
+            <div><span>Available memory</span><strong id="memory-available">—</strong></div>
+            <p>Linux's estimate, including reclaimable cache.</p>
+          </div>
+          <div class="resource-row">
+            <div><span>Swap usage</span><strong id="swap-usage">—</strong></div>
+            <progress id="swap-bar" value="0" max="100" aria-label="Swap usage"></progress>
+          </div>
+          <div class="load-heading">
+            <span>Load average</span><span class="muted">Runnable + waiting tasks</span>
+          </div>
+          <div class="load-grid">
+            <div><strong id="load-1">—</strong><span>1 minute</span></div>
+            <div><strong id="load-5">—</strong><span>5 minutes</span></div>
+            <div><strong id="load-15">—</strong><span>15 minutes</span></div>
+          </div>
+        </section>
+      </div>
+      <section class="panel system-panel" id="system" aria-labelledby="system-title">
+        <div class="system-intro">
+          <p class="eyebrow">THE LITTLE BOX BEHIND IT ALL</p>
+          <h2 id="system-title">Nothing fancy.<br />Just possibilities.</h2>
+          <p>
+            A home for bots, containers and the occasional<br class="desktop-break" />
+            “I wonder if this would work.”
+          </p>
+        </div>
+        <dl class="system-specs">
+          <div>
+            <dt>Machine</dt>
+            <dd>Dell OptiPlex 3060 Micro</dd>
+          </div>
+          <div>
+            <dt>Processor</dt>
+            <dd>Intel Core i5-8400T · 6 cores</dd>
+          </div>
+          <div>
+            <dt>Memory</dt>
+            <dd>8 GB DDR4</dd>
+          </div>
+          <div>
+            <dt>Storage</dt>
+            <dd>256 GB SATA SSD</dd>
+          </div>
+          <div>
+            <dt>Operating system</dt>
+            <dd>Ubuntu Server</dd>
+          </div>
+          <div>
+            <dt>Monitor</dt>
+            <dd>Optiplex <span id="version">—</span></dd>
+          </div>
+        </dl>
+        <div class="archive-facts">
+          <span class="archive-icon" aria-hidden="true">↗</span><strong id="archive-total">—</strong
+          ><span>metric samples kept</span>
+          <p id="archive-first">History, one minute at a time.</p>
+          <span class="subtle-badge">No automatic metric expiry</span>
+        </div>
+      </section>
+      <footer class="site-footer">
+        <span
+          >Built out of curiosity.
+          <a href="https://www.davevancauwenberghe.be" target="_blank" rel="noopener noreferrer"
+            >dvc<span class="accent">.</span></a
+          ></span
+        >
+        <div>
+          <span class="footer-note">Public metrics. Private people.</span
+          ><button type="button" id="privacy-open">Privacy</button
+          ><a href="https://github.com/dvc-labs/optiplex" target="_blank" rel="noopener noreferrer"
+            >GitHub ↗</a
+          >
+        </div>
+      </footer>
+    </main>
+    <dialog id="privacy-dialog" aria-labelledby="privacy-title">
+      <div class="dialog-heading">
+        <h2 id="privacy-title">Just the numbers.</h2>
+        <button type="button" id="privacy-close" aria-label="Close privacy information">×</button>
+      </div>
+      <p>
+        This dashboard publishes host performance readings and aggregated metric history. Discord
+        accounts, IDs, commands, IP addresses, tokens and logs are excluded.
+      </p>
+      <p>
+        The app uses no analytics, cookies, local storage or visitor accounts. Cloudflare delivers
+        this site and processes connection information, including IP addresses, under its own
+        privacy policy.
+      </p>
+      <p>
+        Readings update about once a minute; history exports every five minutes. Old readings are
+        marked stale. This is a home lab, not an uptime guarantee.
+      </p>
+      <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer"
+        >Cloudflare privacy policy ↗</a
+      >
+    </dialog>
+  </body>
+</html>

@@ -112,3 +112,18 @@ test('audit retention defaults to 90 days, can be disabled and rejects ambiguous
       /AUDIT_RETENTION_DAYS/,
     );
 });
+
+test('public exports stay outside private data directories and are disabled for local bot starts by default', () => {
+  assert.equal(loadConfig(env).publicDataPath, null);
+  const base = {
+    ...env,
+    DATABASE_FILE: '/app/data/optiplex.sqlite',
+    HISTORY_FILE: '/app/data/history.json',
+  };
+  for (const path of ['relative', '/app/data', '/app/data/public', '/app', '/'])
+    assert.throws(() => loadConfig({ ...base, PUBLIC_DATA_PATH: path }), /PUBLIC_DATA_PATH/);
+  assert.equal(
+    loadConfig({ ...base, PUBLIC_DATA_PATH: '/app/public-data' }).publicDataPath,
+    '/app/public-data',
+  );
+});

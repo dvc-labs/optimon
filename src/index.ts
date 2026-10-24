@@ -10,6 +10,7 @@ import { BotReporter } from './reporter.js';
 import { MonitorRuntime } from './runtime.js';
 import { TelemetryStore } from './telemetry.js';
 import { ArchiveReader } from './history-reader.js';
+import { DashboardPublisher } from './dashboard-publisher.js';
 
 if (existsSync('.env')) loadEnvFile('.env');
 let config: ReturnType<typeof loadConfig>;
@@ -43,9 +44,13 @@ const client = new Client({
   allowedMentions: { parse: [] },
   rest: { timeout: 15_000, retries: 2 },
 });
+const archive = new ArchiveReader(config.databaseFile);
 const runtime = new MonitorRuntime(config, {
   telemetry,
-  archive: new ArchiveReader(config.databaseFile),
+  archive,
+  ...(config.publicDataPath
+    ? { publisher: new DashboardPublisher(config.publicDataPath, () => archive.dashboard()) }
+    : {}),
   reporter: new BotReporter(client, config),
   collect: () => collectSnapshot(config.procPath, config.sensorPath),
   gateway: {

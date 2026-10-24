@@ -1,5 +1,6 @@
 import { MessageFlags, type ChatInputCommandInteraction } from 'discord.js';
 import type { Config } from './config.js';
+import type { SnapshotPublisher } from './dashboard-publisher.js';
 import { handleCommand, isKnownCommand, type CommandContext } from './commands.js';
 import { Cooldown, ReportControls } from './controls.js';
 import { baseEmbed, statsEmbed, thermalEmbed } from './embeds.js';
@@ -29,6 +30,7 @@ interface RuntimeOptions {
   reporter: Pick<BotReporter, 'send'>;
   collect: () => Promise<Snapshot>;
   heartbeat?: ExternalHeartbeat;
+  publisher?: SnapshotPublisher;
   schedule?: typeof scheduleReports;
   logger?: typeof log;
   now?: () => number;
@@ -161,6 +163,14 @@ export class MonitorRuntime {
       this.options.telemetry.recordMetrics(point ? [point] : []);
     } catch (error) {
       this.logger('metric_archive_write_failed', safeError(error));
+    }
+    if (this.options.publisher) {
+      try {
+        await this.options.publisher.publish(snapshot);
+      } catch (error) {
+        this.logger('dashboard_export_failed', safeError(error));
+      }
+      if (this.stopping) return;
     }
     if (this.now() >= this.nextAuditCleanup) {
       try {
