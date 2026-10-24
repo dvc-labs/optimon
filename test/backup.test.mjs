@@ -186,3 +186,31 @@ test('the documented offline restore script removes stale live sidecars and pres
   assert.equal((await stat(join(f.directory, saved))).mode & 0o777, 0o700);
   assert.equal((await readdir(f.directory)).includes('optiplex.sqlite-wal'), false);
 });
+
+test('an unsupported current backup is preserved and the CLI names the artifact and recovery action', async (t) => {
+  const f = await fixture(t);
+  f.add();
+  await backupDatabase(f.path);
+  f.add();
+  await backupDatabase(f.path);
+  const future = new DatabaseSync(f.current);
+  future.exec('PRAGMA user_version=2');
+  future.close();
+  const original = await readFile(f.current);
+  const previous = await readFile(f.previous);
+  const child = spawnSync(process.execPath, ['dist/backup-cli.js'], {
+    cwd: new URL('../', import.meta.url),
+    encoding: 'utf8',
+    timeout: 5000,
+    env: { ...process.env, DATABASE_FILE: f.path },
+  });
+  assert.equal(child.status, 1, child.stderr);
+  const entry = JSON.parse(child.stdout.trim());
+  assert.equal(entry.event, 'database_backup_blocked');
+  assert.equal(entry.file, 'optiplex.backup.sqlite');
+  assert.equal(entry.reason, 'UnsupportedBackupSchema');
+  assert.match(entry.action, /Preserve.*move it aside.*rerun/i);
+  assert.ok(!child.stdout.includes(f.path));
+  assert.deepEqual(await readFile(f.current), original);
+  assert.deepEqual(await readFile(f.previous), previous);
+});

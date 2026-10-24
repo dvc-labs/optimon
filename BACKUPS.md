@@ -31,6 +31,25 @@ Audit expiry applies to the live database. Older local/R2 backups keep old user
 IDs until those copies expire; configure backup retention separately. Every new
 snapshot still contains the full indefinite metric archive.
 
+## A backup is blocked by an existing file
+
+A `database_backup_blocked` event names the existing snapshot by basename, gives
+the reason (for example `UnsupportedBackupSchema`) and explains the next action.
+The file and the previous generation remain untouched. An unsupported format can
+still be an intact backup from another version; preserve it before moving it aside.
+
+For the default current snapshot, this example keeps the file under a new name:
+
+```sh
+mv -n /app/data/optiplex.backup.sqlite /app/data/optiplex.backup.saved.sqlite
+npm run backup
+```
+
+Run this in the bot container terminal after confirming the log identifies that
+file. If the saved name already exists, choose another unused name first. Keep
+that saved artifact and the previous generation until recovery is confirmed.
+Do not delete an unsupported file merely to make the command pass.
+
 ## Restore with the bot stopped
 
 Run host commands over **SSH on optiplex**. Before stopping anything, identify the

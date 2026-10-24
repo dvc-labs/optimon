@@ -1,6 +1,8 @@
 import { hottestTemperature, type Snapshot } from './metrics.js';
 
 export const HISTORY_LIMIT = 1440;
+export const QUERY_CACHE_MS = 60_000;
+export const QUERY_TIMEOUT_MS = 10_000;
 const BARS = '▁▂▃▄▅▆▇█';
 export const HISTORY_WINDOWS = [60, 360, 1440, 10080, 43200, 525600] as const;
 export function historyGraph(values: readonly (number | null)[]): string {

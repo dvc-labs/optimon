@@ -136,7 +136,7 @@ test('post-ready wiring registers, samples, persists, updates presence and posts
   assert.equal(f.sent[0].title, 'Optiplex monitor is online');
   assert.deepEqual(
     f.jobs.map((job) => job.interval),
-    [60_000, 15 * 60_000],
+    [60_000, 30 * 60_000],
   );
   f.advance();
   await f.jobs[0].task();
@@ -421,4 +421,38 @@ test('startup and hourly audit maintenance expire old command records while metr
   await f.jobs[0].task();
   assert.equal(f.telemetry.status().commandCount, 0);
   assert.equal(f.telemetry.status().metricCount, 3);
+});
+
+test('failed audit cleanup backs off for fifteen minutes while sampling continues, then returns to hourly cadence', async (t) => {
+  const f = await fixture(t);
+  const prune = f.telemetry.pruneCommands.bind(f.telemetry);
+  let attempts = 0;
+  let failing = true;
+  f.telemetry.pruneCommands = (...args) => {
+    attempts++;
+    if (failing) throw new Error('fixture storage failure');
+    return prune(...args);
+  };
+  await f.runtime.start();
+  assert.equal(attempts, 1);
+  for (let i = 0; i < 14; i++) {
+    f.advance();
+    await f.jobs[0].task();
+  }
+  assert.equal(attempts, 1);
+  assert.equal(f.telemetry.status().metricCount, 15);
+  f.advance();
+  await f.jobs[0].task();
+  assert.equal(attempts, 2);
+  assert.equal(f.logs.filter((e) => e.event === 'audit_retention_failed').length, 2);
+  failing = false;
+  for (let i = 0; i < 15; i++) f.advance();
+  await f.jobs[0].task();
+  assert.equal(attempts, 3);
+  for (let i = 0; i < 59; i++) f.advance();
+  await f.jobs[0].task();
+  assert.equal(attempts, 3);
+  f.advance();
+  await f.jobs[0].task();
+  assert.equal(attempts, 4);
 });

@@ -434,3 +434,34 @@ test('audit retention deletes only records older than the boundary and never rem
     store.close();
   }
 });
+
+test('secure deletion scrubs expired IDs from checkpointed database pages and a fresh WAL-aware snapshot', async (t) => {
+  const { path } = await fixture(t);
+  const store = await TelemetryStore.open(path);
+  t.after(() => store.close());
+  assert.equal(store.db.prepare('PRAGMA secure_delete').get().secure_delete, 1);
+  const marker = '918273645546372819';
+  for (let i = 0; i < 50; i++)
+    store.startCommand(
+      command(`expired-${i}`, { actorId: marker, startedAt: now - 91 * 86400_000 }),
+    );
+  store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  assert.ok(
+    (await readFile(path)).includes(marker),
+    'control: the ID was physically stored before pruning',
+  );
+  assert.equal(store.pruneCommands(90, now), 50);
+  const snapshot = await backupDatabase(path);
+  assert.equal(
+    (await readFile(snapshot)).includes(marker),
+    false,
+    'fresh backups must not copy deleted-cell remnants',
+  );
+  store.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  assert.equal(
+    (await readFile(path)).includes(marker),
+    false,
+    'checkpointing writes the scrubbed pages to the main file',
+  );
+  assert.equal(store.status().commandCount, 0);
+});

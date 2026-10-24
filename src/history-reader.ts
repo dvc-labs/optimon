@@ -1,12 +1,17 @@
 import { Worker } from 'node:worker_threads';
-import { HISTORY_WINDOWS, type HistorySummary } from './history.js';
+import {
+  HISTORY_WINDOWS,
+  QUERY_CACHE_MS,
+  QUERY_TIMEOUT_MS,
+  type HistorySummary,
+} from './history.js';
 import type { HistoryComparison, HistoryReader, QueryKind, QueryResult } from './history-query.js';
 
-export const QUERY_CACHE_MS = 60_000;
 interface Pending {
   key: string;
   requestedAt: number;
   promise: Promise<QueryResult>;
+  timer: NodeJS.Timeout;
   resolve(value: QueryResult): void;
   reject(error: Error): void;
 }
@@ -19,6 +24,7 @@ export class ArchiveReader implements HistoryReader {
   private worker: Worker | null = null;
   private stopping = false;
   private closing: Promise<void> | null = null;
+  private retiring: Promise<void> | null = null;
   private sequence = 0;
   private pending = new Map<number, Pending>();
   private cache = new Map<string, { at: number; result: QueryResult }>();
@@ -50,13 +56,41 @@ export class ArchiveReader implements HistoryReader {
       reject = no;
     });
     const id = ++this.sequence;
-    this.pending.set(id, { key, requestedAt: now, promise, resolve, reject });
+    const timer = setTimeout(() => {
+      if (this.pending.has(id)) this.fail(namedError('ArchiveQueryTimeout'));
+    }, QUERY_TIMEOUT_MS);
+    this.pending.set(id, { key, requestedAt: now, promise, resolve, reject, timer });
+    this.post(id, { id, kind, minutes, now });
+    return promise.then((value) => structuredClone(value));
+  }
+  private post(
+    id: number,
+    request: { id: number; kind: QueryKind; minutes: number; now: number },
+  ): void {
+    if (this.stopping || !this.pending.has(id)) return;
+    if (this.retiring) {
+      this.retiring
+        .then(() => this.post(id, request))
+        .catch(() => {
+          if (this.pending.has(id)) this.fail(namedError('ArchiveReaderUnavailable'));
+        });
+      return;
+    }
     try {
-      this.getWorker().postMessage({ id, kind, minutes, now });
+      this.getWorker().postMessage(request);
     } catch {
       this.fail(namedError('ArchiveReaderUnavailable'));
     }
-    return promise.then((value) => structuredClone(value));
+  }
+  private retire(worker: Worker): void {
+    const retired = worker.terminate().then(() => {});
+    this.retiring = retired;
+    retired.then(
+      () => {
+        if (this.retiring === retired) this.retiring = null;
+      },
+      () => {},
+    );
   }
   private getWorker(): Worker {
     if (this.worker) return this.worker;
@@ -73,6 +107,7 @@ export class ArchiveReader implements HistoryReader {
         if (this.worker !== worker) return;
         const request = this.pending.get(message.id);
         if (!request) return;
+        clearTimeout(request.timer);
         this.pending.delete(message.id);
         if (message.result) {
           this.cache.set(request.key, { at: request.requestedAt, result: message.result });
@@ -92,19 +127,26 @@ export class ArchiveReader implements HistoryReader {
     const worker = this.worker;
     this.worker = null;
     this.cache.clear();
-    for (const request of this.pending.values()) request.reject(error);
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
     this.pending.clear();
-    if (worker) worker.terminate().catch(() => {});
+    if (worker) this.retire(worker);
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.stopping = true;
     const worker = this.worker;
     this.worker = null;
-    for (const request of this.pending.values()) request.reject(namedError('ArchiveReaderClosed'));
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(namedError('ArchiveReaderClosed'));
+    }
     this.pending.clear();
     this.cache.clear();
-    this.closing = worker ? worker.terminate().then(() => {}) : Promise.resolve();
+    if (worker) this.retire(worker);
+    this.closing = this.retiring ?? Promise.resolve();
     return this.closing;
   }
 }

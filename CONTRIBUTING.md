@@ -35,7 +35,9 @@ Keep schema versions and imports transactional and idempotent; migration must
 survive process termination before and after commit. Use WAL, full synchronous
 commits and a bounded busy timeout. Do not move storage onto network filesystems
 or load the unbounded archive into RAM. Execute heavy aggregate queries in the
-read-only worker, cache bounded results briefly, and keep the failed-write retry
+read-only worker, bound queued requests with a deadline and clear timers on every
+completion/error/close path. Terminate a retired worker before starting its
+replacement. Cache bounded results briefly, and keep the failed-write retry
 buffer capped. Show storage/delivery failures in owner diagnostics.
 
 Test post-ready sampling → alert → delivery, failure retries and shutdown ordering

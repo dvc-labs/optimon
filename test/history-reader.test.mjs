@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ArchiveReader, QUERY_CACHE_MS } from '../dist/history-reader.js';
-import { HISTORY_WINDOWS } from '../dist/history.js';
+import { ArchiveReader } from '../dist/history-reader.js';
+import { Worker } from 'node:worker_threads';
+import { HISTORY_WINDOWS, QUERY_CACHE_MS, QUERY_TIMEOUT_MS } from '../dist/history.js';
 import { TelemetryStore } from '../dist/telemetry.js';
 
 async function fixture(t, create = true) {
@@ -116,5 +117,41 @@ test('closing the reader rejects pending work, prevents new queries and terminat
   await f.reader.close();
   await pending;
   await assert.rejects(f.reader.summary(60), { name: 'ArchiveReaderClosed' });
+  assert.equal(f.reader.worker, null);
+});
+
+test('a stuck live worker times out all queued requests and the next query uses a replacement', async (t) => {
+  const f = await fixture(t);
+  f.store.recordMetrics([point(f.now())]);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const suppress = t.mock.method(Worker.prototype, 'postMessage', () => {});
+  const a = assert.rejects(f.reader.summary(525600), { name: 'ArchiveQueryTimeout' });
+  const oldWorker = f.reader.worker;
+  const b = assert.rejects(f.reader.compare(525600), { name: 'ArchiveQueryTimeout' });
+  t.mock.timers.tick(QUERY_TIMEOUT_MS);
+  suppress.mock.restore();
+  t.mock.timers.reset();
+  await Promise.all([a, b]);
+  assert.equal(f.reader.pending.size, 0);
+  assert.equal((await f.reader.summary(60)).count, 1);
+  assert.notEqual(f.reader.worker, oldWorker);
+  assert.equal(oldWorker.threadId, -1, 'replacement must wait for the old worker to terminate');
+});
+
+test('successful and closed requests clear deadlines so stale timers cannot retire a healthy worker', async (t) => {
+  const f = await fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await f.reader.summary(60);
+  const worker = f.reader.worker;
+  t.mock.timers.tick(QUERY_TIMEOUT_MS * 2);
+  assert.equal(f.reader.worker, worker);
+  assert.equal((await f.reader.compare(60)).current.count, 0);
+  const suppress = t.mock.method(Worker.prototype, 'postMessage', () => {});
+  const pending = assert.rejects(f.reader.summary(360), { name: 'ArchiveReaderClosed' });
+  const closing = f.reader.close();
+  t.mock.timers.tick(QUERY_TIMEOUT_MS * 2);
+  suppress.mock.restore();
+  t.mock.timers.reset();
+  await Promise.all([pending, closing]);
   assert.equal(f.reader.worker, null);
 });

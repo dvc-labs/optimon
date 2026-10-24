@@ -171,6 +171,7 @@ export class MonitorRuntime {
         if (removed) this.logger('audit_records_expired', { records: removed });
         this.nextAuditCleanup = this.now() + 3600_000;
       } catch (error) {
+        this.nextAuditCleanup = this.now() + 15 * 60_000;
         this.logger('audit_retention_failed', safeError(error));
       }
     }

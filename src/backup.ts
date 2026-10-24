@@ -9,9 +9,20 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { dirname } from 'node:path';
+import { basename, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { backup, DatabaseSync } from 'node:sqlite';
+
+/** A known existing artifact blocks safe promotion; report its basename and a recovery action. */
+export class BackupBlockedError extends Error {
+  constructor(
+    readonly fileName: string,
+    readonly reason: string,
+  ) {
+    super('Existing backup could not be verified.');
+    this.name = 'BackupBlockedError';
+  }
+}
 
 function namedError(name: string): Error {
   return Object.assign(new Error(name), { name });
@@ -102,7 +113,13 @@ export async function backupDatabase(source: string): Promise<string> {
       try {
         verifyBackup(destination);
       } catch (error) {
-        if ((error as Error).name !== 'CorruptBackupDatabase') throw error;
+        if ((error as Error).name !== 'CorruptBackupDatabase') {
+          const reason = (error as { name?: string }).name;
+          throw new BackupBlockedError(
+            basename(destination),
+            reason && /^[A-Za-z0-9_.-]{1,80}$/.test(reason) ? reason : 'VerificationFailed',
+          );
+        }
         rotate = false; // Never replace the good previous generation with a damaged current one.
       }
     }

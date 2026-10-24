@@ -94,7 +94,7 @@ export class TelemetryStore {
       ) {
         throw namedError('UnsupportedTelemetrySchema');
       }
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;
         PRAGMA cache_size=-4096; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576;
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS metrics (

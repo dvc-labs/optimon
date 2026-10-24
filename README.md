@@ -2,7 +2,7 @@
 
 A small Discord companion for the optiplex home lab. **Version 0.2.3.**
 
-- One embed when the bot connects, then host snapshots every **15 minutes**.
+- One embed when the bot connects, then host snapshots every **30 minutes**.
 - Live CPU, RAM, **swap**, uptime, load averages and Intel CPU temperatures.
 - **All metric history retained on disk**, comparisons, Discord latency checks and a playful server mood.
 - A live Discord activity showing temperature, CPU and RAM use.
@@ -45,7 +45,7 @@ all three public IDs are required explicitly; the Compose file has no personal I
 | `ADMIN_ID` | Optional **Discord user ID** allowed to use owner controls; blank disables them. |
 | `AUDIT_RETENTION_DAYS` | Command records expire after `90` days; `0` keeps them indefinitely. |
 | `HOST_NAME` | Display name; defaults to `optiplex`. |
-| `STATS_INTERVAL_MINUTES` | Defaults to `15`; allowed range `1`–`1440`. |
+| `STATS_INTERVAL_MINUTES` | Defaults to `30`; allowed range `1`–`1440`. |
 | `THERMAL_ALERTS_ENABLED` | `true` by default; set `false` to disable thermal notices. |
 | `HEARTBEAT_URL` | Optional secret HTTPS ping URL; blank disables external monitoring. |
 
@@ -55,7 +55,8 @@ Background samples run about once a minute. Interactive commands share a snapsho
 cache of up to **15 seconds** and do not add extra history samples. History stores
 **every background sample**, committed immediately and restored after restarts.
 History queries run in a read-only worker with a **60-second result cache**; the
-bot keeps no separate RAM history. Queries show min/average/peak readings and
+bot keeps no separate RAM history. A **10-second query deadline** retires a stuck
+worker and permits a replacement on the next request. Queries show min/average/peak readings and
 24 time buckets. Gaps stay visible; graphs use a fixed 0–100 scale and temperatures
 above 100 °C saturate the graph while their exact values remain in the summary.
 These are periodic samples, not continuous measurements or interval averages.
@@ -68,7 +69,8 @@ concurrent readers without rewriting the whole archive every minute. Do not put
 this database on NFS, SMB or another network filesystem. Run one bot instance per volume.
 
 Command audit rows expire after **90 days** by default, checked at startup and
-about hourly. Set `AUDIT_RETENTION_DAYS=0` before upgrading to retain them indefinitely.
+about hourly; background cleanup failures retry after 15 minutes. The writer
+enables secure deletion for future pruning. Set `AUDIT_RETENTION_DAYS=0` before upgrading to retain them indefinitely.
 Metrics remain indefinite. The legacy JSON reader stays available for skipped upgrades.
 
 ## Backups and recovery

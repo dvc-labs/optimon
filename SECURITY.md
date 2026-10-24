@@ -27,7 +27,8 @@ credentials or detailed exploit instructions in a public issue.
   The optional administrator-configured HTTPS heartbeat sends no metrics, refuses
   redirects and has a five-second timeout. Never share its ping URL publicly.
 - Runtime error logs contain selected error identifiers, not raw Discord errors,
-  request bodies, authorization headers or request URLs.
+  request bodies, authorization headers or request URLs. A blocked-backup log may
+  name the artifact by basename and give a recovery action; it omits absolute paths.
 
 ## Host metrics
 
@@ -58,7 +59,9 @@ idempotent legacy migration. Keep the database on local storage, not a network
 share, with one bot writer. The failed-write retry buffer is bounded to 1440 readings.
 No metric rows are
 automatically deleted. A read-only worker executes aggregate history queries in
-WAL read transactions, with a bounded 60-second cache; it receives no bot token.
+WAL read transactions, with a bounded 60-second cache and a 10-second request
+deadline; it receives no bot token. Timed-out workers are terminated before a
+replacement is allowed to start.
 The old RAM history and JSON writer have been removed, while the bounded read-only
 legacy importer remains for skipped upgrades.
 
@@ -74,8 +77,12 @@ before promotion and retaining
 one verified previous generation. See [BACKUPS.md](BACKUPS.md) for offline restore.
 Back up externally before moving servers; a raw copy of the live main file can miss
 committed WAL data. Volumes are not backups. Protect backup access and retain them
-according to your own privacy needs. Live audit expiry does not erase older backup
-copies, SQLite WAL history or filesystem snapshots; it is not a secure-erasure claim.
+according to your own privacy needs. The writer enables `PRAGMA secure_delete=ON`
+before future audit deletions, so deleted table cells and freed pages are zeroed.
+In WAL mode, those scrubbed pages reach the main file when checkpointed. This does
+not retroactively scrub leftovers from earlier deletes. Older WAL frames, backup
+copies and filesystem snapshots can retain prior IDs; retention is not a claim of
+secure erasure from SSD media or every historical copy.
 Command cooldowns, reporting pauses, thermal
 state and process counters remain temporary process state.
 Dependencies and bot code must still be trusted: read-only mounts and containers
