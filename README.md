@@ -66,45 +66,6 @@ SQLite WAL mode, full synchronous commits and a **250 ms busy timeout** support
 concurrent readers without rewriting the whole archive every minute. Do not put
 this database on NFS, SMB or another network filesystem. Run one bot instance per volume.
 
-CPU %, RAM % and the hottest CPU temperature are stored to one decimal place with
-sample timestamps. Recognized slash commands in the configured guild also retain
-command name, interaction/user/guild/channel IDs, start/completion times, outcome
-and duration. Arguments, message contents and credentials are excluded. `/audit` is
-owner-only; retained IDs still deserve private storage and backups.
-
-**Nothing expires automatically.** `/history` and `/compare` query up to a year at
-a time; older data remains in the database for future analysis. Watch disk usage.
-`/diagnostics` shows archive counts, oldest reading, storage state and delivery
-failures. On temporary write failure, up to 1440 pending samples can retry; any
-unsaved samples dropped beyond that buffer are counted. Audit failures are visible
-too. Monitoring continues, but a full/unwritable disk cannot guarantee recording.
-
-**Upgrade from v0.2.1:** keep the same resource and volume, set the required IDs,
-reload Compose, then redeploy. Available `history.json` readings import automatically
-in a transaction with an import marker; timestamp keys prevent duplicates. Schema
-changes are versioned and transactional. The original becomes `history.json.migrated`
-for rollback. Previously expired readings cannot be recovered. Test `/history` and
-`/diagnostics` after restarting the container.
-
-Corrupt JSON/database files are preserved as `.corrupt-<timestamp>-<id>` and a fresh
-archive starts with a recovery warning in logs, diagnostics and the startup embed.
-Unreadable/unsafe paths and unsupported database schemas still stop startup rather
-than overwrite data. Pauses, thermal state and process counters reset on restart.
-
-**Backups:** in the running service's Coolify terminal, run `npm run backup` before
-an R2/volume backup. It atomically creates `/app/data/optiplex.backup.sqlite`, a
-consistent standalone snapshot including metrics and audit records. Arrange this
-before each scheduled backup; merely enabling R2 does not run this command. Do not
-rely on copying a live SQLite main file without its WAL. To restore a snapshot,
-stop the bot, preserve the current database and `-wal`/`-shm` sidecars separately,
-place the snapshot at `optiplex.sqlite` with the same owner and mode 0600, then start.
-
-The hottest Intel CPU sensor triggers a warning after **two consecutive samples
-at or above 80 °C**, and a recovery notice after **two at or below 75 °C**. One
-notice is sent per confirmed transition; failed delivery can retry on the next
-sample. Missing sensors and long sampling gaps interrupt the streak. Alerts do
-not ping anyone. The warning is an early heads-up, not the CPU's damage threshold.
-
 ## External outage monitoring
 
 Optionally set `HEARTBEAT_URL` to a Healthchecks.io check or an Uptime Kuma push
@@ -113,11 +74,6 @@ expected interval and a grace period of about three minutes, plus notifications 
 that service. The bot sends a bounded HTTPS GET after each usable background
 sample while connected to Discord; no metrics are sent. Redirects are refused.
 Pausing reports keeps these pings and thermal alerts running.
-
-Docker's health check reports readiness; `restart: unless-stopped` restarts an
-exited process, not a process merely marked unhealthy. Coolify's health/routing
-behavior does not guarantee automatic restart for this worker. Use the independent
-monitor for missed-heartbeat alerts and verify its notification route.
 
 ## Development
 
