@@ -3,14 +3,23 @@ import { hottestTemperature, type Snapshot } from './metrics.js';
 export const HISTORY_LIMIT = 1440;
 export const HISTORY_MS = 24 * 60 * 60_000;
 const BARS = '▁▂▃▄▅▆▇█';
-interface Point { at: number; cpu: number | null; memory: number | null; temperature: number | null }
+export interface HistoryPoint { at: number; cpu: number | null; memory: number | null; temperature: number | null }
+export function isHistoryPoint(value: unknown): value is HistoryPoint {
+  if (typeof value !== 'object' || value === null) return false;
+  const point = value as Record<string, unknown>;
+  const metric = (reading: unknown, min: number, max: number): boolean => reading === null ||
+    (typeof reading === 'number' && Number.isFinite(reading) && reading >= min && reading <= max);
+  return typeof point.at === 'number' && Number.isSafeInteger(point.at) && point.at >= 0 &&
+    point.at <= 8_640_000_000_000_000 && metric(point.cpu, 0, 100) &&
+    metric(point.memory, 0, 100) && metric(point.temperature, -30, 150);
+}
 export interface MetricSummary { count: number; min: number; mean: number; max: number; graph: string }
 export interface HistorySummary {
   minutes: number; count: number; firstAt: number | null; lastAt: number | null;
   cpu: MetricSummary | null; memory: MetricSummary | null; temperature: MetricSummary | null;
 }
 
-function summarize(points: Point[], key: 'cpu' | 'memory' | 'temperature',
+function summarize(points: HistoryPoint[], key: 'cpu' | 'memory' | 'temperature',
   from: number, to: number): MetricSummary | null {
   const values = points.map((point) => point[key]).filter((value): value is number => value !== null);
   if (!values.length) return null;
@@ -34,8 +43,19 @@ function summarize(points: Point[], key: 'cpu' | 'memory' | 'temperature',
 }
 
 export class History {
-  private points: Point[] = [];
+  private points: HistoryPoint[] = [];
   get size(): number { return this.points.length; }
+
+  restore(points: readonly HistoryPoint[], now = Date.now()): void {
+    const retained = points.filter((point) => point.at >= now - HISTORY_MS && point.at <= now);
+    this.points = [...new Map(retained.map((point) => [point.at, { ...point }])).values()]
+      .sort((a, b) => a.at - b.at).slice(-HISTORY_LIMIT);
+  }
+
+  exportPoints(now = Date.now()): HistoryPoint[] {
+    return this.points.filter((point) => point.at >= now - HISTORY_MS && point.at <= now)
+      .map((point) => ({ ...point }));
+  }
 
   record(snapshot: Snapshot): void {
     const at = snapshot.capturedAt.getTime();

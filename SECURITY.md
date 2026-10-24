@@ -40,9 +40,20 @@ information; treat the Discord reporting channel as visible to its members.
 Public command responses also expose aggregate metrics in the channel where they
 are invoked, and the bot's activity exposes a CPU/RAM/temperature summary. Restrict
 command and channel access in Discord if those readings should be private.
-Trend history is bounded to 1440 compact samples and 24 hours in process memory;
-it is not written to a database or volume and is lost on restart. Command cooldown
-state is bounded too. Reporting pauses and counters are temporary process state.
+Trend history is bounded to 1440 compact samples and 24 hours, with a writable named
+volume at `/app/data`. Only timestamps and aggregate CPU, RAM and CPU temperature
+readings are stored; there are no credentials, Discord messages or user IDs in the
+history format. The image initializes the directory for its non-root user with mode
+0700; history files are written with mode 0600. The versioned input format is checked
+and capped at 1 MiB before parsing. Saves use a file in the same directory, fsync and
+atomic rename, followed by a directory sync. Invalid or unsupported history stops
+startup without replacing the file. Later write failures are logged safely and
+shown as degraded storage in owner diagnostics while monitoring continues.
+Use one writer per history volume and keep its permissions private. Retained
+history survives container replacement when the same volume is attached; it is
+local to the deployment server and is not a backup. Back it up before moving
+servers or deleting storage. Command cooldown state is bounded too. Reporting
+pauses, thermal state and counters remain temporary process state.
 Dependencies and bot code must still be trusted: read-only mounts and containers
 do not make arbitrary code safe. Missing readings are shown as unavailable.
 

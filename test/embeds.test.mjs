@@ -16,8 +16,9 @@ test('every v0.2 embed has the release footer, a timestamp and Discord-valid fie
       rss: 100 * 1024 ** 2, heapUsed: 20 * 1024 ** 2, heapTotal: 30 * 1024 ** 2,
       gatewayMs: 42, historySize: 100, now: data.capturedAt.getTime() + 2000,
       reports: { pausedUntil: null, lastReportAt: null, failures: 0 },
+      historyStorage: { healthy: true, lastSavedAt: data.capturedAt.getTime() },
     })];
-  assert.match(FOOTER, /v0\.2\.0/);
+  assert.match(FOOTER, /v0\.2\.1/);
   for (const embed of embeds) {
     const payload = embed.toJSON();
     assert.equal(payload.footer.text, FOOTER);
@@ -57,4 +58,36 @@ test('fun and ping commands remain honest when telemetry or Discord heartbeats a
   assert.equal(swap(unavailable), 'Unavailable');
   assert.equal(swap(snapshot({ swap: { total: 0, free: 0, used: 0, percent: 0 } })), 'Not configured');
   assert.equal(swap(snapshot()), '0.00 GiB / 4.00 GiB in use');
+});
+
+test('owner diagnostics distinguish retained history from transient process state and report failed saves', () => {
+  const data = snapshot();
+  const details = {
+    rss: 100 * 1024 ** 2, heapUsed: 20 * 1024 ** 2, heapTotal: 30 * 1024 ** 2,
+    gatewayMs: 42, historySize: 100, now: data.capturedAt.getTime(),
+    reports: { pausedUntil: null, lastReportAt: null, failures: 0 },
+    historyStorage: { healthy: false, lastSavedAt: null },
+  };
+  const degraded = diagnosticsEmbed(data, config(), details).toJSON();
+  assert.match(degraded.description, /persisted history/);
+  assert.match(degraded.fields.find((field) => field.name === 'History').value, /24h retention/);
+  const status = degraded.fields.find((field) => field.name === 'History storage').value;
+  assert.match(status, /Degraded/);
+  assert.match(status, /retrying each sample/);
+  assert.match(status, /None yet/);
+  const healthy = diagnosticsEmbed(data, config(), { ...details,
+    historyStorage: { healthy: true, lastSavedAt: details.now },
+  }).toJSON();
+  assert.match(healthy.fields.find((field) => field.name === 'History storage').value, /Healthy/);
+});
+
+test('history and help explain persistence and offline gaps instead of claiming a restart resets history', () => {
+  const history = new History();
+  const data = snapshot();
+  history.record(data);
+  const result = historyEmbed(history.summary(60, data.capturedAt.getTime())).toJSON();
+  const coverage = result.fields.find((field) => field.name === 'Recorded coverage').value;
+  assert.match(coverage, /survives restarts/);
+  assert.match(coverage, /Offline periods appear as gaps/);
+  assert.match(JSON.stringify(helpEmbed().toJSON()), /persistent storage/);
 });

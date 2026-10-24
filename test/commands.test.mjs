@@ -17,6 +17,7 @@ function harness(settings = {}) {
     reporter: { send: async (embed) => { events.push('send'); sent.push(embed.toJSON()); } },
     cooldown: new Cooldown(10_000), manualCooldown: new Cooldown(60_000, 1),
     gatewayPing: () => 42,
+    historyStorage: { status: () => { events.push('storage-status'); return { healthy: true, lastSavedAt: Date.now() }; } },
   };
   function interaction(commandName = 'stats', options = {}) {
     const calls = [];
