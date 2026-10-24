@@ -23,14 +23,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
+          check-latest: true
           cache: npm
-      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --engine-strict
       - run: npm run check
       - run: npm test
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - name: Validate Compose without production credentials
         run: docker compose -f compose.yaml config --quiet
         env:
           DISCORD_TOKEN: ci-placeholder-not-a-real-token
       - name: Build the runtime image
         run: docker build --tag optiplex-ci .
+      - name: Smoke-test the runtime image without credentials
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true optiplex-ci \
+            node --input-type=module -e '
+              import { commandDefinitions } from "./dist/commands.js";
+              import { VERSION } from "./dist/version.js";
+              console.log(`Optiplex v${VERSION}: ${commandDefinitions().length} commands on ${process.version}`);
+            '

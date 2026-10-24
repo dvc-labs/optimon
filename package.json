@@ -1,11 +1,11 @@
 {
   "name": "@dvc-labs/optiplex",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "description": "A small Discord monitor for the optiplex home server.",
   "type": "module",
-  "engines": { "node": ">=24.17.0 <25" },
+  "engines": { "node": ">=24.22.1 <25" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
@@ -13,5 +13,5 @@
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": { "discord.js": "14.27.0" },
-  "devDependencies": { "@types/node": "^24.0.0", "typescript": "^5.9.3" }
+  "devDependencies": { "@types/node": "^24.19.2", "typescript": "^7.0.2" }
 }

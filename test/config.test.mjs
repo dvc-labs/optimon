@@ -28,6 +28,26 @@ test('missing secrets and invalid report intervals fail clearly without exposing
   }
 });
 
+test('owner controls default off and accept only an exact Discord user ID', () => {
+  assert.equal(loadConfig(env).adminId, null);
+  assert.equal(loadConfig({ ...env, ADMIN_ID: '  ' }).adminId, null);
+  assert.equal(loadConfig({ ...env, ADMIN_ID: ' 1562643787510063218 ' }).adminId, '1562643787510063218');
+  for (const invalid of ['dave', '1.5626437875100632e18', '00000000000000000', '18446744073709551616']) {
+    assert.throws(() => loadConfig({ ...env, ADMIN_ID: invalid }), (error) => {
+      assert.equal(error.message, 'ADMIN_ID must be a Discord ID stored as a string.');
+      return true;
+    });
+  }
+});
+
+test('thermal alerts default on and reject ambiguous configuration values', () => {
+  assert.equal(loadConfig(env).thermalAlerts, true);
+  assert.equal(loadConfig({ ...env, THERMAL_ALERTS_ENABLED: ' FALSE ' }).thermalAlerts, false);
+  for (const invalid of ['yes', '0', 'maybe']) {
+    assert.throws(() => loadConfig({ ...env, THERMAL_ALERTS_ENABLED: invalid }), /THERMAL_ALERTS_ENABLED/);
+  }
+});
+
 test('error diagnostics omit tokens, request URLs and request bodies', () => {
   const sensitiveUrl = `https://discord.com/api/channels/${env.CHANNEL_ID}/messages?secret=private-value`;
   const error = Object.assign(new Error(`Secret ${env.DISCORD_TOKEN} ${sensitiveUrl}`), {
