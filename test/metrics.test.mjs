@@ -3,8 +3,16 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseCpu, cpuUsage, parseMemory, parseSwap, parseLoad, parseUptime,
-  readTemperatures, collectSnapshot } from '../dist/metrics.js';
+import {
+  parseCpu,
+  cpuUsage,
+  parseMemory,
+  parseSwap,
+  parseLoad,
+  parseUptime,
+  readTemperatures,
+  collectSnapshot,
+} from '../dist/metrics.js';
 
 test('CPU sampling excludes double-counted guest counters and includes iowait in idle', () => {
   const before = parseCpu('cpu  100 0 50 800 50 0 0 0 90 0\ncpu0 1 2 3 4\ncpu1 1 2 3 4\n');
@@ -17,7 +25,9 @@ test('CPU sampling excludes double-counted guest counters and includes iowait in
 });
 
 test('memory usage uses MemAvailable, so reclaimable cache is not all counted as used', () => {
-  const memory = parseMemory('MemTotal: 8000000 kB\nMemFree: 1000000 kB\nMemAvailable: 6000000 kB\n');
+  const memory = parseMemory(
+    'MemTotal: 8000000 kB\nMemFree: 1000000 kB\nMemAvailable: 6000000 kB\n',
+  );
   assert.equal(memory.percent, 25);
   assert.equal(memory.total, 8000000 * 1024);
   assert.throws(() => parseMemory('MemTotal: 1 kB\nMemAvailable: 2 kB\n'));
@@ -36,7 +46,8 @@ test('coretemp sensors convert millidegrees and tolerate missing labels and inva
   try {
     const cpu = join(root, 'hwmon3');
     const other = join(root, 'hwmon4');
-    await mkdir(cpu); await mkdir(other);
+    await mkdir(cpu);
+    await mkdir(other);
     await Promise.all([
       writeFile(join(cpu, 'name'), 'coretemp\n'),
       writeFile(join(cpu, 'temp1_input'), '31000\n'),
@@ -48,9 +59,12 @@ test('coretemp sensors convert millidegrees and tolerate missing labels and inva
       writeFile(join(other, 'temp1_input'), '99000\n'),
     ]);
     assert.deepEqual(await readTemperatures(root), [
-      { label: 'Package id 0', celsius: 31 }, { label: 'temp2', celsius: 27.5 },
+      { label: 'Package id 0', celsius: 31 },
+      { label: 'temp2', celsius: 27.5 },
     ]);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('missing host mounts produce explicit unavailable metrics, never container fallbacks', async () => {
@@ -69,7 +83,12 @@ test('swap reports usage and handles hosts with no configured swap', () => {
   assert.equal(swap.total, 4 * 1024 ** 3);
   assert.equal(swap.used, 1024 ** 3);
   assert.equal(swap.percent, 25);
-  assert.deepEqual(parseSwap('SwapTotal: 0 kB\nSwapFree: 0 kB'), { total: 0, free: 0, used: 0, percent: 0 });
+  assert.deepEqual(parseSwap('SwapTotal: 0 kB\nSwapFree: 0 kB'), {
+    total: 0,
+    free: 0,
+    used: 0,
+    percent: 0,
+  });
   assert.throws(() => parseSwap('SwapTotal: 1 kB\nSwapFree: 2 kB'));
   assert.throws(() => parseSwap('SwapTotal: 1 kB'));
 });

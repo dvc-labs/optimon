@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "rules": {
+    "typescript/no-floating-promises": ["error", { "ignoreVoid": false }],
+    "typescript/no-misused-promises": "error"
+  }
+}

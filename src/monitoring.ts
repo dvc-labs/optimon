@@ -6,8 +6,10 @@ export const SNAPSHOT_CACHE_MS = 15_000;
 export class MetricsCache {
   private pending: Promise<Snapshot> | null = null;
   last: Snapshot | null = null;
-  constructor(private readonly collect: () => Promise<Snapshot>,
-    private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly collect: () => Promise<Snapshot>,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   async getSnapshot(): Promise<Snapshot> {
     const age = this.last ? this.now() - this.last.capturedAt.getTime() : Infinity;
@@ -17,7 +19,9 @@ export class MetricsCache {
     try {
       this.last = await this.pending;
       return this.last;
-    } finally { this.pending = null; }
+    } finally {
+      this.pending = null;
+    }
   }
 }
 
@@ -34,11 +38,16 @@ export class ThermalWatch {
     const at = snapshot.capturedAt.getTime();
     if (at === this.lastAt) return null;
     if (this.lastAt !== null && (at < this.lastAt || at - this.lastAt > 150_000)) {
-      this.hotSamples = 0; this.coolSamples = 0;
+      this.hotSamples = 0;
+      this.coolSamples = 0;
     }
     this.lastAt = at;
     const value = hottestTemperature(snapshot);
-    if (value === null) { this.hotSamples = 0; this.coolSamples = 0; return null; }
+    if (value === null) {
+      this.hotSamples = 0;
+      this.coolSamples = 0;
+      return null;
+    }
     this.hotSamples = value >= THERMAL_WARN_C ? Math.min(2, this.hotSamples + 1) : 0;
     this.coolSamples = value <= THERMAL_RECOVER_C ? Math.min(2, this.coolSamples + 1) : 0;
     if (!this.active && this.hotSamples >= 2) return 'hot';
@@ -49,6 +58,7 @@ export class ThermalWatch {
   // Commit only after Discord accepted the notification; failed sends can retry.
   confirm(event: ThermalEvent): void {
     this.active = event === 'hot';
-    this.hotSamples = 0; this.coolSamples = 0;
+    this.hotSamples = 0;
+    this.coolSamples = 0;
   }
 }

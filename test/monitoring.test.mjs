@@ -8,12 +8,17 @@ test('concurrent metrics requests share a read and expire at the cache boundary'
   let now = snapshot().capturedAt.getTime();
   let reads = 0;
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const cache = new MetricsCache(async () => {
-    reads++;
-    if (reads === 1) await gate;
-    return snapshot({ capturedAt: new Date(now) });
-  }, () => now);
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const cache = new MetricsCache(
+    async () => {
+      reads++;
+      if (reads === 1) await gate;
+      return snapshot({ capturedAt: new Date(now) });
+    },
+    () => now,
+  );
   const first = cache.getSnapshot();
   const second = cache.getSnapshot();
   assert.equal(reads, 1);
@@ -46,9 +51,16 @@ function temperatures() {
   let at = snapshot().capturedAt.getTime();
   return (value, gap = 60_000) => {
     at += gap;
-    return snapshot({ capturedAt: new Date(at), temperatures: value === null ? [] : [
-      { label: 'Package id 0', celsius: value - 5 }, { label: 'Core 2', celsius: value },
-    ] });
+    return snapshot({
+      capturedAt: new Date(at),
+      temperatures:
+        value === null
+          ? []
+          : [
+              { label: 'Package id 0', celsius: value - 5 },
+              { label: 'Core 2', celsius: value },
+            ],
+    });
   };
 }
 
@@ -64,7 +76,11 @@ test('thermal warnings use the hottest CPU sensor and hysteresis rather than one
   assert.equal(watch.observe(next(95)), null);
   assert.equal(watch.observe(next(95)), null, 'a confirmed warning must not repeat every minute');
   assert.equal(watch.observe(next(75)), null);
-  assert.equal(watch.observe(next(76)), null, 'middle-band readings interrupt consecutive recovery');
+  assert.equal(
+    watch.observe(next(76)),
+    null,
+    'middle-band readings interrupt consecutive recovery',
+  );
   assert.equal(watch.observe(next(74)), null);
   assert.equal(watch.observe(next(75)), 'recovered');
   watch.confirm('recovered');
@@ -116,8 +132,18 @@ test('report pauses are temporary, bounded and independent of report counters', 
   reports.failures = 2;
   reports.pause(1440);
   reports.resume();
-  assert.deepEqual(reports.status(), { pausedUntil: null, lastReportAt: 500, failures: 2 });
-  assert.deepEqual(new ReportControls().status(), { pausedUntil: null, lastReportAt: null, failures: 0 });
+  assert.deepEqual(reports.status(), {
+    pausedUntil: null,
+    lastReportAt: 500,
+    failures: 2,
+    thermalFailures: 0,
+  });
+  assert.deepEqual(new ReportControls().status(), {
+    pausedUntil: null,
+    lastReportAt: null,
+    failures: 0,
+    thermalFailures: 0,
+  });
 });
 
 test('cooldowns expire per user and bound their user map', () => {

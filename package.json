@@ -1,17 +1,31 @@
 {
   "name": "@dvc-labs/optiplex",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "license": "MIT",
   "description": "A small Discord monitor for the optiplex home server.",
   "type": "module",
-  "engines": { "node": ">=24.22.1 <25" },
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "lint": "oxlint --type-aware --max-warnings 0 src",
+    "format": "prettier --write src test package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
+    "format:check": "prettier --check src test package.json tsconfig.json .github .prettierrc.json .oxlintrc.json",
+    "backup": "node dist/backup-cli.js"
   },
-  "dependencies": { "discord.js": "14.27.0" },
-  "devDependencies": { "@types/node": "^24.19.2", "typescript": "^7.0.2" }
+  "dependencies": {
+    "discord.js": "14.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "oxlint": "^1.89.0",
+    "oxlint-tsgolint": "^7.0.2005",
+    "prettier": "^3.9.10",
+    "typescript": "^7.0.2"
+  }
 }

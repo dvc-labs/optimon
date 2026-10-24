@@ -18,10 +18,10 @@ services:
     pids_limit: 64
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN:?Set DISCORD_TOKEN in Coolify}
-      APPLICATION_ID: ${APPLICATION_ID:-1562643787510063217}
+      APPLICATION_ID: ${APPLICATION_ID:?Set APPLICATION_ID in Coolify}
       CLIENT_ID: ${CLIENT_ID:-}
-      GUILD_ID: ${GUILD_ID:-1562082957022204006}
-      CHANNEL_ID: ${CHANNEL_ID:-1562960345860153444}
+      GUILD_ID: ${GUILD_ID:?Set GUILD_ID in Coolify}
+      CHANNEL_ID: ${CHANNEL_ID:?Set CHANNEL_ID in Coolify}
       ADMIN_ID: ${ADMIN_ID:-}
       THERMAL_ALERTS_ENABLED: ${THERMAL_ALERTS_ENABLED:-true}
       HOST_NAME: ${HOST_NAME:-optiplex}
@@ -29,9 +29,12 @@ services:
       HOST_PROC_PATH: /host-metrics/proc
       TEMP_SENSOR_PATH: /host-metrics/hwmon
       HISTORY_FILE: /app/data/history.json
+      DATABASE_FILE: /app/data/optiplex.sqlite
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
       NODE_OPTIONS: --max-old-space-size=128
       TZ: Europe/Brussels
-    # History has its own writable volume; host counters and CPU sensors stay read-only.
+    # SQLite WAL and legacy history share the existing local writable volume.
+    # Host counters and CPU sensors stay read-only.
     # No host PID/network namespace, Docker socket, root filesystem or public ports.
     volumes:
       - type: volume
@@ -75,3 +78,4 @@ services:
 
 volumes:
   history-data:
+    driver: local
