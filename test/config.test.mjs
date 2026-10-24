@@ -11,9 +11,9 @@ const env = {
   CHANNEL_ID: '1562960345860153444',
 };
 
-test('bot reports default to fifteen minutes with only the bot token and public IDs', () => {
+test('bot reports default to thirty minutes with only the bot token and public IDs', () => {
   const config = loadConfig(env);
-  assert.equal(config.intervalMinutes, 15);
+  assert.equal(config.intervalMinutes, 30);
   assert.equal(config.procPath, '/host-metrics/proc');
 });
 
@@ -100,4 +100,15 @@ test('error diagnostics omit tokens, request URLs and request bodies', () => {
   assert.ok(!result.includes(env.DISCORD_TOKEN));
   assert.ok(!result.includes(sensitiveUrl));
   assert.ok(!result.includes('requestBody'));
+});
+
+test('audit retention defaults to 90 days, can be disabled and rejects ambiguous values', () => {
+  assert.equal(loadConfig(env).auditRetentionDays, 90);
+  assert.equal(loadConfig({ ...env, AUDIT_RETENTION_DAYS: '0' }).auditRetentionDays, 0);
+  assert.equal(loadConfig({ ...env, AUDIT_RETENTION_DAYS: '30' }).auditRetentionDays, 30);
+  for (const value of ['-1', '1.5', '3651', 'forever'])
+    assert.throws(
+      () => loadConfig({ ...env, AUDIT_RETENTION_DAYS: value }),
+      /AUDIT_RETENTION_DAYS/,
+    );
 });

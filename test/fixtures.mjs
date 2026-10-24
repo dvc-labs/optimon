@@ -27,3 +27,32 @@ export function snapshot(overrides = {}) {
     ...overrides,
   };
 }
+
+export function telemetryStatus(overrides = {}) {
+  return {
+    healthy: true,
+    lastSavedAt: Date.now(),
+    metricCount: 100,
+    commandCount: 0,
+    firstAt: null,
+    recoveries: 0,
+    pendingSamples: 0,
+    auditFailures: 0,
+    droppedSamples: 0,
+    ...overrides,
+  };
+}
+export function historySummary(overrides = {}) {
+  const at = snapshot().capturedAt.getTime();
+  const metric = { count: 1, min: 5, mean: 5, max: 5, graph: '▁'.repeat(24) };
+  return {
+    minutes: 1440,
+    count: 1,
+    firstAt: at,
+    lastAt: at,
+    cpu: { ...metric },
+    memory: { ...metric },
+    temperature: { ...metric },
+    ...overrides,
+  };
+}

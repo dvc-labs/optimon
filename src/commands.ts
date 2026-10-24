@@ -19,10 +19,10 @@ import {
   uptimeEmbed,
   vibeEmbed,
 } from './embeds.js';
-import type { History } from './history.js';
 import type { MetricsCache } from './monitoring.js';
 import type { BotReporter } from './reporter.js';
-import type { HistoryStorageStatus } from './storage.js';
+import type { TelemetryStatus } from './telemetry.js';
+import type { HistoryReader } from './history-query.js';
 import type { CommandOutcome, TelemetryStore } from './telemetry.js';
 import type { ExternalHeartbeatStatus } from './heartbeat.js';
 import { auditEmbed, comparisonEmbed } from './embeds.js';
@@ -128,14 +128,13 @@ export async function registerCommands(
 export interface CommandContext {
   config: Config;
   cache: MetricsCache;
-  history: History;
   reports: ReportControls;
   reporter: Pick<BotReporter, 'send'>;
   cooldown: Cooldown;
   manualCooldown: Cooldown;
   gatewayPing: () => number;
-  historyStorage: { status(): HistoryStorageStatus };
-  archive: Pick<TelemetryStore, 'summary' | 'compare' | 'recentCommands'>;
+  historyStorage: { status(): TelemetryStatus };
+  archive: Pick<HistoryReader, 'summary' | 'compare'> & Pick<TelemetryStore, 'recentCommands'>;
   heartbeatStatus: () => ExternalHeartbeatStatus;
   auditOutcome?: (outcome: CommandOutcome) => void;
 }
@@ -144,7 +143,7 @@ export async function handleCommand(
   interaction: ChatInputCommandInteraction,
   context: CommandContext,
 ): Promise<boolean> {
-  const { config, cache, history, reports, reporter } = context;
+  const { config, cache, reports, reporter } = context;
   const name = interaction.commandName;
   if (!commandNames.has(name)) return false;
   async function deny(
@@ -192,12 +191,14 @@ export async function handleCommand(
     if (name === 'ping') return edit(pingEmbed(context.gatewayPing(), acknowledgementMs));
     if (name === 'history')
       return edit(
-        historyEmbed(context.archive.summary((interaction.options.getInteger('hours') ?? 1) * 60)),
+        historyEmbed(
+          await context.archive.summary((interaction.options.getInteger('hours') ?? 1) * 60),
+        ),
       );
     if (name === 'compare')
       return edit(
         comparisonEmbed(
-          context.archive.compare((interaction.options.getInteger('hours') ?? 24) * 60),
+          await context.archive.compare((interaction.options.getInteger('hours') ?? 24) * 60),
         ),
       );
     const snapshot = await cache.getSnapshot();
@@ -234,7 +235,6 @@ export async function handleCommand(
           heapUsed: memory.heapUsed,
           heapTotal: memory.heapTotal,
           gatewayMs: context.gatewayPing(),
-          historySize: history.size,
           reports: reports.status(),
           now: Date.now(),
           historyStorage: context.historyStorage.status(),

@@ -15,16 +15,13 @@ import {
   FOOTER,
   BRAND_COLOR,
 } from '../dist/embeds.js';
-import { History } from '../dist/history.js';
 import { THERMAL_WARN_C, THERMAL_RECOVER_C } from '../dist/monitoring.js';
-import { config, snapshot } from './fixtures.mjs';
+import { config, snapshot, historySummary, telemetryStatus } from './fixtures.mjs';
 
 test('every v0.2 embed has the release footer, a timestamp and Discord-valid field lengths', () => {
   const cfg = config();
   const data = snapshot();
-  const history = new History();
-  history.record(data);
-  const summary = history.summary(1440, data.capturedAt.getTime());
+  const summary = historySummary();
   const embeds = [
     aboutEmbed(cfg),
     helpEmbed(),
@@ -42,13 +39,12 @@ test('every v0.2 embed has the release footer, a timestamp and Discord-valid fie
       heapUsed: 20 * 1024 ** 2,
       heapTotal: 30 * 1024 ** 2,
       gatewayMs: 42,
-      historySize: 100,
       now: data.capturedAt.getTime() + 2000,
       reports: { pausedUntil: null, lastReportAt: null, failures: 0 },
-      historyStorage: { healthy: true, lastSavedAt: data.capturedAt.getTime() },
+      historyStorage: telemetryStatus({ lastSavedAt: data.capturedAt.getTime() }),
     }),
   ];
-  assert.match(FOOTER, /v0\.2\.2/);
+  assert.match(FOOTER, /v0\.2\.3/);
   for (const embed of embeds) {
     const payload = embed.toJSON();
     assert.equal(payload.footer.text, FOOTER);
@@ -117,36 +113,32 @@ test('owner diagnostics distinguish retained history from transient process stat
     heapUsed: 20 * 1024 ** 2,
     heapTotal: 30 * 1024 ** 2,
     gatewayMs: 42,
-    historySize: 100,
     now: data.capturedAt.getTime(),
     reports: { pausedUntil: null, lastReportAt: null, failures: 0 },
-    historyStorage: { healthy: false, lastSavedAt: null },
+    historyStorage: telemetryStatus({ healthy: false, lastSavedAt: null }),
   };
   const degraded = diagnosticsEmbed(data, config(), details).toJSON();
   assert.match(degraded.description, /persisted history/);
   assert.match(
-    degraded.fields.find((field) => field.name === 'Recent RAM cache').value,
-    /up to 24h/,
+    degraded.fields.find((field) => field.name === 'History queries').value,
+    /Read-only worker/,
   );
   const status = degraded.fields.find((field) => field.name === 'History storage').value;
   assert.match(status, /Degraded/);
   assert.match(status, /None yet/);
   const healthy = diagnosticsEmbed(data, config(), {
     ...details,
-    historyStorage: { healthy: true, lastSavedAt: details.now },
+    historyStorage: telemetryStatus({ lastSavedAt: details.now }),
   }).toJSON();
   assert.match(healthy.fields.find((field) => field.name === 'History storage').value, /Healthy/);
 });
 
 test('history and help explain persistence and offline gaps instead of claiming a restart resets history', () => {
-  const history = new History();
-  const data = snapshot();
-  history.record(data);
-  const result = historyEmbed(history.summary(60, data.capturedAt.getTime())).toJSON();
+  const result = historyEmbed(historySummary({ minutes: 60 })).toJSON();
   const coverage = result.fields.find((field) => field.name === 'Recorded coverage').value;
   assert.match(coverage, /survives restarts/);
   assert.match(coverage, /Offline periods appear as gaps/);
-  assert.match(JSON.stringify(helpEmbed().toJSON()), /disk archive/);
+  assert.match(JSON.stringify(helpEmbed().toJSON()), /history stays on disk/);
 });
 
 test('stats colour, server mood, thermal notices and diagnostics share the alert thresholds', () => {
@@ -185,4 +177,18 @@ test('a full audit page fits one Discord embed and excludes command arguments', 
     payload.author.name.length +
     payload.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0);
   assert.ok(length <= 6000);
+});
+
+test('long windows use days and comparison increases have explicit positive deltas', () => {
+  const previous = historySummary({ minutes: 525600 });
+  const current = historySummary({ minutes: 525600, cpu: { ...previous.cpu, mean: 8 } });
+  assert.equal(historyEmbed(current).toJSON().title, 'Optiplex · Last 365d');
+  const result = comparisonEmbed({ current, previous }).toJSON();
+  assert.equal(result.title, 'Optiplex · Compare 365d windows');
+  assert.match(
+    result.fields.find((f) => f.name === 'CPU busy').value,
+    /Δ \+3\.0 percentage points/,
+  );
+  current.cpu.mean = 2;
+  assert.match(comparisonEmbed({ current, previous }).toJSON().fields[0].value, /Δ -3\.0/);
 });

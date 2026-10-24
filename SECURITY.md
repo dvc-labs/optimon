@@ -27,7 +27,8 @@ credentials or detailed exploit instructions in a public issue.
   The optional administrator-configured HTTPS heartbeat sends no metrics, refuses
   redirects and has a five-second timeout. Never share its ping URL publicly.
 - Runtime error logs contain selected error identifiers, not raw Discord errors,
-  request bodies, authorization headers or request URLs.
+  request bodies, authorization headers or request URLs. A blocked-backup log may
+  name the artifact by basename and give a recovery action; it omits absolute paths.
 
 ## Host metrics
 
@@ -43,7 +44,9 @@ Public command responses also expose aggregate metrics in the channel where they
 are invoked, and the bot's activity exposes a CPU/RAM/temperature summary. Restrict
 command and channel access in Discord if those readings should be private.
 The writable local volume at `/app/data` retains all timestamped CPU/RAM/temperature
-samples and recognized guild slash-command metadata indefinitely. Audit records
+samples indefinitely. Recognized guild slash-command metadata has a default
+90-day live retention window, configurable with `AUDIT_RETENTION_DAYS` (`0` keeps all).
+Audit records
 include interaction, user, guild and channel IDs, command name, start/completion
 times, duration and outcome; **no arguments, message contents or credentials**.
 Denied and failed commands are recorded too. `/audit` requires the exact `ADMIN_ID`
@@ -53,8 +56,14 @@ The image creates the data directory with mode 0700; databases, backups and
 quarantined files use mode 0600. SQLite uses WAL, full synchronous commits, a
 250 ms busy timeout, versioned transactional schema creation and transactional,
 idempotent legacy migration. Keep the database on local storage, not a network
-share, with one bot writer. Only the RAM cache and retry buffer are bounded to
-1440 readings; no archive rows are automatically deleted. Disk usage therefore grows.
+share, with one bot writer. The failed-write retry buffer is bounded to 1440 readings.
+No metric rows are
+automatically deleted. A read-only worker executes aggregate history queries in
+WAL read transactions, with a bounded 60-second cache and a 10-second request
+deadline; it receives no bot token. Timed-out workers are terminated before a
+replacement is allowed to start.
+The old RAM history and JSON writer have been removed, while the bounded read-only
+legacy importer remains for skipped upgrades.
 
 Corrupt databases/legacy files are quarantined without logging their contents, then
 monitoring starts with a fresh archive and a visible recovery warning. This does
@@ -63,10 +72,18 @@ paths stop startup. Runtime save/audit failures are logged safely and exposed in
 diagnostics. Extended storage failure may lose new readings or audit records;
 exhausting the bounded sample retry buffer increments a visible drop counter.
 
-Use `npm run backup` to create a consistent standalone SQLite snapshot before
-backing up to R2 or moving servers; a raw copy of the live main file can miss
+Use `npm run backup` to create a consistent standalone SQLite snapshot, validated
+before promotion and retaining
+one verified previous generation. See [BACKUPS.md](BACKUPS.md) for offline restore.
+Back up externally before moving servers; a raw copy of the live main file can miss
 committed WAL data. Volumes are not backups. Protect backup access and retain them
-according to your own privacy needs. Command cooldowns, reporting pauses, thermal
+according to your own privacy needs. The writer enables `PRAGMA secure_delete=ON`
+before future audit deletions, so deleted table cells and freed pages are zeroed.
+In WAL mode, those scrubbed pages reach the main file when checkpointed. This does
+not retroactively scrub leftovers from earlier deletes. Older WAL frames, backup
+copies and filesystem snapshots can retain prior IDs; retention is not a claim of
+secure erasure from SSD media or every historical copy.
+Command cooldowns, reporting pauses, thermal
 state and process counters remain temporary process state.
 Dependencies and bot code must still be trusted: read-only mounts and containers
 do not make arbitrary code safe. Missing readings are shown as unavailable.

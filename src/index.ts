@@ -9,6 +9,7 @@ import { collectSnapshot } from './metrics.js';
 import { BotReporter } from './reporter.js';
 import { MonitorRuntime } from './runtime.js';
 import { TelemetryStore } from './telemetry.js';
+import { ArchiveReader } from './history-reader.js';
 
 if (existsSync('.env')) loadEnvFile('.env');
 let config: ReturnType<typeof loadConfig>;
@@ -25,6 +26,12 @@ try {
   telemetry = await TelemetryStore.open(config.databaseFile, config.historyFile, (event) =>
     log(event),
   );
+  try {
+    const removed = telemetry.pruneCommands(config.auditRetentionDays);
+    if (removed) log('audit_records_expired', { records: removed });
+  } catch (error) {
+    log('audit_retention_failed', safeError(error));
+  }
   log('telemetry_opened', { ...telemetry.status() });
 } catch (error) {
   log('telemetry_initialization_failed', safeError(error));
@@ -38,6 +45,7 @@ const client = new Client({
 });
 const runtime = new MonitorRuntime(config, {
   telemetry,
+  archive: new ArchiveReader(config.databaseFile),
   reporter: new BotReporter(client, config),
   collect: () => collectSnapshot(config.procPath, config.sensorPath),
   gateway: {

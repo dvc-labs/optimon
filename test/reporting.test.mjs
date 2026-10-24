@@ -44,7 +44,7 @@ test('about, startup and stats share branding and distinguish host and process u
   assert.equal(startup.fields.find((field) => field.name === 'Bot uptime').value, '0h 0m');
   assert.equal(
     embeds[0].toJSON().fields.find((field) => field.name === 'Scheduled reports').value,
-    `Every 15 minutes in <#${config.channelId}>`,
+    `Every 30 minutes in <#${config.channelId}>`,
   );
 });
 

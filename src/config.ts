@@ -9,6 +9,7 @@ export interface Config {
   thermalAlerts: boolean;
   hostName: string;
   intervalMinutes: number;
+  auditRetentionDays: number;
   procPath: string;
   sensorPath: string;
   historyFile: string;
@@ -42,10 +43,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   ) {
     throw new Error('APPLICATION_ID and CLIENT_ID must match; only APPLICATION_ID is needed.');
   }
-  const interval = env.STATS_INTERVAL_MINUTES?.trim() || '15';
+  const interval = env.STATS_INTERVAL_MINUTES?.trim() || '30';
   if (!/^\d+$/.test(interval) || Number(interval) < 1 || Number(interval) > 1440) {
     throw new Error('STATS_INTERVAL_MINUTES must be an integer from 1 to 1440.');
   }
+  const retention = env.AUDIT_RETENTION_DAYS?.trim() || '90';
+  if (!/^\d+$/.test(retention) || Number(retention) > 3650)
+    throw new Error(
+      'AUDIT_RETENTION_DAYS must be an integer from 0 to 3650 (0 keeps all records).',
+    );
   const alerts = env.THERMAL_ALERTS_ENABLED?.trim().toLowerCase() || 'true';
   if (alerts !== 'true' && alerts !== 'false') {
     throw new Error('THERMAL_ALERTS_ENABLED must be true or false.');
@@ -84,6 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     thermalAlerts: alerts === 'true',
     hostName,
     intervalMinutes: Number(interval),
+    auditRetentionDays: Number(retention),
     procPath,
     sensorPath,
     historyFile,

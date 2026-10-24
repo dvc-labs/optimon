@@ -10,18 +10,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import {
-  HISTORY_LIMIT,
-  HISTORY_MS,
-  HISTORY_WINDOWS,
-  historyGraph,
-  isHistoryPoint,
-  roundMetric,
-  type HistoryPoint,
-  type HistorySummary,
-  type MetricSummary,
-} from './history.js';
-import { HistoryFileStore, type HistoryStorageStatus } from './storage.js';
+import { HISTORY_LIMIT, isHistoryPoint, roundMetric, type HistoryPoint } from './history.js';
+import { readLegacyHistory } from './legacy-history.js';
 
 export type CommandOutcome = 'ok' | 'denied' | 'cooldown' | 'failed' | 'interrupted';
 export interface CommandAudit {
@@ -35,9 +25,16 @@ export interface CommandAudit {
   outcome: CommandOutcome | 'started';
   durationMs: number | null;
 }
-export interface HistoryComparison {
-  current: HistorySummary;
-  previous: HistorySummary;
+export interface TelemetryStatus {
+  healthy: boolean;
+  lastSavedAt: number | null;
+  metricCount: number;
+  commandCount: number;
+  firstAt: number | null;
+  recoveries: number;
+  pendingSamples: number;
+  auditFailures: number;
+  droppedSamples: number;
 }
 type RecoveryLogger = (event: string) => void;
 
@@ -97,7 +94,7 @@ export class TelemetryStore {
       ) {
         throw namedError('UnsupportedTelemetrySchema');
       }
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON;
         PRAGMA cache_size=-4096; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=1048576;
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS metrics (
@@ -150,7 +147,7 @@ export class TelemetryStore {
         const source = existsSync(legacyFile) ? legacyFile : `${legacyFile}.migrated`;
         if (existsSync(source)) {
           try {
-            points = await new HistoryFileStore(source).load();
+            points = await readLegacyHistory(source);
           } catch (error) {
             if ((error as Error).name !== 'InvalidHistoryFile') throw error;
             quarantine(source);
@@ -265,78 +262,6 @@ export class TelemetryStore {
     }
   }
 
-  recent(now = Date.now()): HistoryPoint[] {
-    return this.db
-      .prepare(
-        'SELECT at,cpu,memory,temperature FROM metrics WHERE at>=? AND at<=? ORDER BY at DESC LIMIT ?',
-      )
-      .all(now - HISTORY_MS, now, HISTORY_LIMIT)
-      .reverse() as unknown as HistoryPoint[];
-  }
-
-  summary(minutes: number, now = Date.now()): HistorySummary {
-    return this.range(minutes, now - minutes * 60_000, now + 1);
-  }
-
-  compare(minutes: number, now = Date.now()): HistoryComparison {
-    const from = now - minutes * 60_000;
-    return {
-      current: this.range(minutes, from, now + 1),
-      previous: this.range(minutes, from - minutes * 60_000, from),
-    };
-  }
-
-  private range(minutes: number, from: number, to: number): HistorySummary {
-    if (!(HISTORY_WINDOWS as readonly number[]).includes(minutes))
-      throw namedError('UnsupportedHistoryWindow');
-    const columns = ['cpu', 'memory', 'temperature'] as const;
-    const aggregates = columns
-      .map(
-        (column) =>
-          `COUNT(${column}) AS ${column}Count, MIN(${column}) AS ${column}Min, AVG(${column}) AS ${column}Mean, MAX(${column}) AS ${column}Max`,
-      )
-      .join(',');
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS n, MIN(at) AS firstAt, MAX(at) AS lastAt, ${aggregates} FROM metrics WHERE at>=? AND at<?`,
-      )
-      .get(from, to)!;
-    // Indexed ranges avoid a GROUP BY sort that could spill a year of data into /tmp.
-    const bucketQuery = this.db.prepare(
-      'SELECT AVG(cpu) AS cpu, AVG(memory) AS memory, AVG(temperature) AS temperature FROM metrics WHERE at>=? AND at<?',
-    );
-    const bins = Array.from({ length: 24 }, (_, bucket) => {
-      const values = bucketQuery.get(
-        Math.ceil(from + ((to - from) * bucket) / 24),
-        Math.ceil(from + ((to - from) * (bucket + 1)) / 24),
-      )!;
-      return { bucket, cpu: values.cpu, memory: values.memory, temperature: values.temperature };
-    });
-    const metric = (column: (typeof columns)[number]): MetricSummary | null => {
-      const count = Number(row[`${column}Count`]);
-      if (!count) return null;
-      const buckets: (number | null)[] = Array(24).fill(null);
-      for (const bin of bins)
-        buckets[Number(bin.bucket)] = bin[column] === null ? null : Number(bin[column]);
-      return {
-        count,
-        min: Number(row[`${column}Min`]),
-        mean: Number(row[`${column}Mean`]),
-        max: Number(row[`${column}Max`]),
-        graph: historyGraph(buckets),
-      };
-    };
-    return {
-      minutes,
-      count: Number(row.n),
-      firstAt: row.firstAt === null ? null : Number(row.firstAt),
-      lastAt: row.lastAt === null ? null : Number(row.lastAt),
-      cpu: metric('cpu'),
-      memory: metric('memory'),
-      temperature: metric('temperature'),
-    };
-  }
-
   startCommand(entry: Omit<CommandAudit, 'finishedAt' | 'outcome' | 'durationMs'>): void {
     try {
       const result = this.db
@@ -382,6 +307,25 @@ export class TelemetryStore {
     }
   }
 
+  pruneCommands(days: number, now = Date.now()): number {
+    if (!Number.isInteger(days) || days < 0 || days > 3650)
+      throw namedError('InvalidAuditRetention');
+    if (days === 0) return 0;
+    try {
+      const result = this.db
+        .prepare('DELETE FROM commands WHERE startedAt < ?')
+        .run(now - days * 86400_000);
+      const deleted = Number(result.changes);
+      this.commandCount -= deleted;
+      this.auditHealthy = true;
+      return deleted;
+    } catch (error) {
+      this.auditFailures++;
+      this.auditHealthy = false;
+      throw error;
+    }
+  }
+
   recentCommands(limit = 10): CommandAudit[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw namedError('InvalidAuditLimit');
     return this.db
@@ -389,7 +333,7 @@ export class TelemetryStore {
       .all(limit) as unknown as CommandAudit[];
   }
 
-  status(): HistoryStorageStatus {
+  status(): TelemetryStatus {
     const first = this.db.prepare('SELECT MIN(at) AS at FROM metrics').get()?.at;
     return {
       healthy: this.metricsHealthy && this.auditHealthy,
