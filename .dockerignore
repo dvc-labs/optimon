@@ -4,6 +4,10 @@ node_modules
 dist
 coverage
 data
+public-data
+tls
+certs
+scripts
 .env
 .env.*
 *.log
@@ -14,6 +18,10 @@ data
 .secrets
 *.pem
 *.key
+*.csr
+*.crt
+*.p12
+*.pfx
 test
 docs
 

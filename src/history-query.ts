@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { PublicHistory } from './dashboard-data.js';
 import {
   HISTORY_WINDOWS,
   historyGraph,
@@ -9,8 +10,8 @@ export interface HistoryComparison {
   current: HistorySummary;
   previous: HistorySummary;
 }
-export type QueryKind = 'summary' | 'compare';
-export type QueryResult = HistorySummary | HistoryComparison;
+export type QueryKind = 'summary' | 'compare' | 'dashboard';
+export type QueryResult = HistorySummary | HistoryComparison | PublicHistory;
 export interface HistoryReader {
   summary(minutes: number): Promise<HistorySummary>;
   compare(minutes: number): Promise<HistoryComparison>;

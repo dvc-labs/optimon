@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 export interface Config {
   token: string;
@@ -15,6 +15,7 @@ export interface Config {
   historyFile: string;
   databaseFile: string;
   heartbeatUrl: string | null;
+  publicDataPath: string | null;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -73,6 +74,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!isAbsolute(databaseFile) || databaseFile === historyFile)
     throw new Error('DATABASE_FILE must be an absolute path different from HISTORY_FILE.');
   const heartbeatUrl = env.HEARTBEAT_URL?.trim() || null;
+  const publicDataPath = env.PUBLIC_DATA_PATH?.trim() || null;
+  const contains = (parent: string, child: string): boolean => {
+    const path = relative(parent, child);
+    return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+  };
+  if (
+    publicDataPath &&
+    (!isAbsolute(publicDataPath) ||
+      [dirname(databaseFile), dirname(historyFile)].some(
+        (directory) => contains(directory, publicDataPath) || contains(publicDataPath, directory),
+      ))
+  )
+    throw new Error(
+      'PUBLIC_DATA_PATH must be an absolute directory separate from private storage.',
+    );
   if (heartbeatUrl) {
     try {
       const url = new URL(heartbeatUrl);
@@ -96,5 +112,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     historyFile,
     databaseFile,
     heartbeatUrl,
+    publicDataPath,
   };
 }

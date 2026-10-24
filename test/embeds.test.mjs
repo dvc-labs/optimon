@@ -16,9 +16,10 @@ import {
   BRAND_COLOR,
 } from '../dist/embeds.js';
 import { THERMAL_WARN_C, THERMAL_RECOVER_C } from '../dist/monitoring.js';
+import { VERSION } from '../dist/version.js';
 import { config, snapshot, historySummary, telemetryStatus } from './fixtures.mjs';
 
-test('every v0.2 embed has the release footer, a timestamp and Discord-valid field lengths', () => {
+test('every embed has the release footer, a timestamp and Discord-valid field lengths', () => {
   const cfg = config();
   const data = snapshot();
   const summary = historySummary();
@@ -44,7 +45,7 @@ test('every v0.2 embed has the release footer, a timestamp and Discord-valid fie
       historyStorage: telemetryStatus({ lastSavedAt: data.capturedAt.getTime() }),
     }),
   ];
-  assert.match(FOOTER, /v0\.2\.3/);
+  assert.ok(FOOTER.includes(`v${VERSION}`));
   for (const embed of embeds) {
     const payload = embed.toJSON();
     assert.equal(payload.footer.text, FOOTER);

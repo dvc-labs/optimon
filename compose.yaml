@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     restart: unless-stopped
     init: true
     stop_grace_period: 20s
@@ -31,6 +32,7 @@ services:
       TEMP_SENSOR_PATH: /host-metrics/hwmon
       HISTORY_FILE: /app/data/history.json
       DATABASE_FILE: /app/data/optiplex.sqlite
+      PUBLIC_DATA_PATH: /app/public-data
       HEARTBEAT_URL: ${HEARTBEAT_URL:-}
       NODE_OPTIONS: --max-old-space-size=128
       TZ: Europe/Brussels
@@ -41,6 +43,9 @@ services:
       - type: volume
         source: history-data
         target: /app/data
+      - type: volume
+        source: public-metrics
+        target: /app/public-data
       - type: bind
         source: /proc/stat
         target: /host-metrics/proc/stat
@@ -77,6 +82,62 @@ services:
         max-size: 10m
         max-file: "3"
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 32
+    environment:
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the HTTPS dashboard URL in Coolify}
+      DASHBOARD_PORT: "3443"
+      # The published port is bound to host loopback above; the process itself must listen on
+      # the container's own interface for Docker to reach it. Outside Compose it defaults to loopback.
+      DASHBOARD_BIND: 0.0.0.0
+      DASHBOARD_TLS_CERT: /app/tls/origin.pem
+      DASHBOARD_TLS_KEY: /app/tls/origin.key
+      DASHBOARD_TLS_CA: /app/tls/origin-ca.pem
+      PUBLIC_DATA_PATH: /app/public-data
+      NODE_OPTIONS: --max-old-space-size=64
+    # Only host-installed cloudflared (or an SSH local forward) should reach this.
+    # Keep Domains empty in Coolify; do not attach its public proxy.
+    ports:
+      - "127.0.0.1:3443:3443"
+    networks:
+      - dashboard
+    volumes:
+      - type: volume
+        source: public-metrics
+        target: /app/public-data
+        read_only: true
+      - type: bind
+        source: ${DASHBOARD_TLS_HOST_PATH:-/etc/optiplex-dashboard/tls}
+        target: /app/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
 volumes:
   history-data:
     driver: local
+  public-metrics:
+    driver: local
+
+networks:
+  dashboard:
+    driver: bridge

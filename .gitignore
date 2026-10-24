@@ -2,6 +2,9 @@ node_modules/
 dist/
 coverage/
 data/
+public-data/
+tls/
+certs/
 .env
 .env.*
 !.env.example
@@ -14,6 +17,10 @@ Thumbs.db
 .vscode/
 *.pem
 *.key
+*.csr
+*.crt
+*.p12
+*.pfx
 .secrets/
 
 *.sqlite

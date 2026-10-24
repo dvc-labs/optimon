@@ -1,4 +1,5 @@
 import { Worker } from 'node:worker_threads';
+import type { PublicHistory } from './dashboard-data.js';
 import {
   HISTORY_WINDOWS,
   QUERY_CACHE_MS,
@@ -19,7 +20,7 @@ function namedError(name: string): Error {
   return Object.assign(new Error(name), { name });
 }
 
-/** One lazy read-only worker; at most twelve coalesced window queries and cached results. */
+/** One lazy read-only worker; twelve command queries plus one coalesced public export. */
 export class ArchiveReader implements HistoryReader {
   private worker: Worker | null = null;
   private stopping = false;
@@ -38,9 +39,16 @@ export class ArchiveReader implements HistoryReader {
   compare(minutes: number): Promise<HistoryComparison> {
     return this.request('compare', minutes) as Promise<HistoryComparison>;
   }
+  dashboard(): Promise<PublicHistory> {
+    return this.request('dashboard', 0) as Promise<PublicHistory>;
+  }
   private request(kind: QueryKind, minutes: number): Promise<QueryResult> {
     if (this.stopping) return Promise.reject(namedError('ArchiveReaderClosed'));
-    if (!(HISTORY_WINDOWS as readonly number[]).includes(minutes))
+    if (
+      kind === 'dashboard'
+        ? minutes !== 0
+        : !(HISTORY_WINDOWS as readonly number[]).includes(minutes)
+    )
       return Promise.reject(namedError('UnsupportedHistoryWindow'));
     const now = this.now();
     const key = `${kind}:${minutes}`;

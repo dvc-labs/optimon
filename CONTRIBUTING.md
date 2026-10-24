@@ -50,3 +50,16 @@ instructions usable with the bot stopped; never restore over a live WAL writer. 
 must reuse a local named volume between two non-root, read-only containers. Keep
 raw storage paths, secrets and error contents out of Discord and logs. Preserve
 unrelated application commands during registration; skip unchanged definitions.
+
+For dashboard changes, run the privacy, HTTP and real-origin-TLS tests. Keep the
+public data contract explicit on both sides: never export Config, process.env,
+telemetry/audit status or SQL rows with SELECT *. The dashboard image must remain
+independent of Discord credentials, SQLite and the private volume. New metrics
+need a conscious public-data decision. Preserve chart gaps, timestamp-based stale
+states, accessible controls and responsive layouts. Put chart arithmetic in
+`web/chart-model.js` (no DOM, so `node --test` covers it) and register any new file under
+`web/` in the asset map in `src/dashboard-server.ts`. Keep database work in the
+bounded read-only worker. The sample-data preview is development-only and clearly
+labelled; production images must not include it. Build with `npm run build` before
+`npm run dev`. Fonts are self-hosted from `web/fonts/`; do not add CDN scripts or fonts,
+analytics, cookies or a service worker.

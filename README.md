@@ -1,6 +1,6 @@
 # Optiplex
 
-A small Discord companion for the optiplex home lab. **Version 0.2.3.**
+A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.0.**
 
 - One embed when the bot connects, then host snapshots every **30 minutes**.
 - Live CPU, RAM, **swap**, uptime, load averages and Intel CPU temperatures.
@@ -8,10 +8,8 @@ A small Discord companion for the optiplex home lab. **Version 0.2.3.**
 - A live Discord activity showing temperature, CPU and RAM use.
 - Sustained-temperature warnings and recovery notices in the reporting channel.
 - Optional owner controls with private replies. All embeds share the release footer.
-
-A bot start can also be a deployment or container restart. Notifications therefore
-show **host uptime and bot uptime separately**. A bot running on optiplex cannot
-report a power or internet outage while offline; an optional external heartbeat covers that gap.
+- Responsive dashboard with live readings, 1h–365d/all-time charts and social previews.
+- The public container reads only a metrics export, with no Discord secrets or private database.
 
 ## Commands
 

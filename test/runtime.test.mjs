@@ -456,3 +456,59 @@ test('failed audit cleanup backs off for fifteen minutes while sampling continue
   await f.jobs[0].task();
   assert.equal(attempts, 4);
 });
+
+test('public exporting receives host readings, and export failure does not stop alerts or sampling', async (t) => {
+  const published = [];
+  const f = await fixture(t, {
+    options: {
+      publisher: {
+        publish: async (value) => {
+          published.push(value);
+          throw new Error('export failed');
+        },
+      },
+    },
+  });
+  await f.runtime.start();
+  assert.equal(published.length, 1);
+  assert.equal(published[0].cpuPercent, 5);
+  assert.ok(f.logs.some((entry) => entry.event === 'dashboard_export_failed'));
+  assert.equal(f.runtime.ready, true);
+  assert.ok(f.sent.length > 0, 'Discord delivery survives projection failure');
+  await f.runtime.sample();
+  assert.equal(published.length, 2);
+});
+
+test('a slow public export never delays the heartbeat or the Discord activity', async (t) => {
+  let pings = 0;
+  const heartbeat = new ExternalHeartbeat('https://example.invalid/fixture', async () => {
+    pings++;
+    return new Response(null, { status: 200 });
+  });
+  const entered = deferred();
+  const release = deferred();
+  const f = await fixture(t, {
+    config: { HEARTBEAT_URL: 'https://example.invalid/fixture' },
+    options: {
+      heartbeat,
+      publisher: {
+        publish: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    },
+  });
+  const started = f.runtime.start();
+  try {
+    await entered.promise;
+    for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(pings, 1, 'the heartbeat must not wait for the archive query behind the export');
+    assert.ok(f.events.includes('activity'));
+  } finally {
+    // Always unblock the export so a failing assertion cannot hang the runtime teardown.
+    release.resolve();
+  }
+  await started;
+  assert.equal(f.sent.length, 1, 'startup still completes once the export finishes');
+});

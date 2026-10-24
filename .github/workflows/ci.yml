@@ -38,6 +38,7 @@ jobs:
           APPLICATION_ID: '111111111111111111'
           GUILD_ID: '222222222222222222'
           CHANNEL_ID: '333333333333333333'
+          DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
       - name: Build the runtime image
         run: docker build --tag optiplex-ci .
       - name: Smoke-test the runtime image without credentials
@@ -62,3 +63,37 @@ jobs:
               --env "HISTORY_SMOKE_PHASE=$phase" -i optiplex-ci \
               node --input-type=module < test/storage-container.mjs
           done
+      - name: Build the isolated public dashboard image
+        run: docker build --target dashboard --tag optiplex-dashboard-ci .
+      - name: Verify HTTPS and public isolation in a restricted dashboard container
+        run: |
+          fixture_dir="$(mktemp -d)"
+          trap 'rm -rf "$fixture_dir"' EXIT
+          chmod 0755 "$fixture_dir"
+          mkdir "$fixture_dir/tls" "$fixture_dir/public"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$fixture_dir/tls/origin.key" -out "$fixture_dir/tls/origin.pem" \
+            -subj /CN=dashboard.test -addext subjectAltName=DNS:dashboard.test
+          cp "$fixture_dir/tls/origin.pem" "$fixture_dir/tls/origin-ca.pem"
+          chmod 0644 "$fixture_dir/tls/"*
+          FIXTURE_DIR="$fixture_dir" node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const live = { capturedAt: Date.now(), hostUptime: 1000, botUptime: 60,
+              cpuPercent: 5, cores: 6, memory: null, swap: null, load: [0.1,0.2,0.3], temperatures: [] };
+            writeFileSync(`${process.env.FIXTURE_DIR}/public/metrics.json`, JSON.stringify({
+              schema: 1, version: "0.3.0", generatedAt: Date.now(), thermalWarnC: 80,
+              thermalRecoverC: 75, live, history: null
+            }));
+          '
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --memory 128m --cpus 0.25 --pids-limit 32 \
+            --mount "type=bind,source=$fixture_dir/public,target=/app/public-data,readonly" \
+            --mount "type=bind,source=$fixture_dir/tls,target=/app/tls,readonly" \
+            --env DASHBOARD_PUBLIC_URL=https://dashboard.test \
+            --env DASHBOARD_TLS_CERT=/app/tls/origin.pem \
+            --env DASHBOARD_TLS_KEY=/app/tls/origin.key \
+            --env DASHBOARD_TLS_CA=/app/tls/origin-ca.pem \
+            --env PUBLIC_DATA_PATH=/app/public-data \
+            --env NODE_OPTIONS=--max-old-space-size=64 \
+            -i optiplex-dashboard-ci node --input-type=module < test/dashboard-container.mjs
