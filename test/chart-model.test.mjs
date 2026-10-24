@@ -12,6 +12,7 @@ const {
   coverageSentence,
   defaultWindow,
   describeAge,
+  describeMachine,
   formatSpan,
   freshness,
   nearestIndex,
@@ -209,5 +210,52 @@ test('summary and coverage sentences state what the numbers say', () => {
   assert.equal(
     coverageSentence(1260, 0, DAY),
     '87.5% of the minutes in this period have a reading (1,260 of 1,440).',
+  );
+});
+
+test('spring clock-change ticks are unique and ordered when a missing hour normalizes forward', () => {
+  const from = new Date(2026, 2, 29, 1, 0).getTime();
+  const to = new Date(2026, 2, 29, 4, 0).getTime();
+  assert.equal(to - from, 2 * HOUR);
+  const { ticks } = timeTicks(from, to, 8);
+  assert.ok(ticks.length >= 3);
+  assert.equal(
+    new Set(ticks).size,
+    ticks.length,
+    '02:xx and 03:xx must not produce duplicate 03:xx ticks',
+  );
+  for (let i = 1; i < ticks.length; i++) assert.ok(ticks[i] > ticks[i - 1]);
+});
+
+test('status verdicts do not call missing core readings quiet, and alarms keep priority', () => {
+  const data = {
+    thermalWarnC: 80,
+    thermalRecoverC: 75,
+    live: {
+      hostUptime: 3600,
+      cpuPercent: 5,
+      memory: { percent: 20 },
+      temperatures: [{ label: 'Core 0', celsius: 31 }],
+    },
+  };
+  assert.equal(describeMachine(data, 1000).verdict, 'All quiet.');
+  const partial = { ...data, live: { ...data.live, temperatures: [] } };
+  assert.equal(describeMachine(partial, 1000).verdict, 'Some readings unavailable.');
+  assert.match(describeMachine(partial, 1000).detail, /temperatures/);
+  const missing = { ...partial, live: { ...partial.live, cpuPercent: null, memory: null } };
+  assert.equal(describeMachine(missing, 1000).verdict, 'Readings unavailable.');
+  const hot = {
+    ...missing,
+    live: { ...missing.live, temperatures: [{ label: 'Core 0', celsius: 82 }] },
+  };
+  assert.equal(describeMachine(hot, 1000).verdict, 'Running hot.');
+  assert.equal(
+    describeMachine({ ...partial, live: { ...partial.live, memory: { percent: 95 } } }, 1000)
+      .verdict,
+    'Short on memory.',
+  );
+  assert.equal(
+    describeMachine({ ...partial, live: { ...partial.live, cpuPercent: 90 } }, 1000).verdict,
+    'Working hard.',
   );
 });

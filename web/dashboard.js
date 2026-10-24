@@ -5,11 +5,13 @@ import {
   availableWindows,
   coverageSentence,
   defaultWindow,
-  describeAge,
+  describeMachine,
   formatSpan,
   freshness,
+  hottestReading,
   nearestIndex,
   runsAndGaps,
+  sensorName,
   summarySentence,
   timeTicks,
   valueScale,
@@ -96,48 +98,6 @@ let pollTimer = 0;
 // ---------------------------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------------------------
-
-function hottestReading(data) {
-  let best = null;
-  for (const reading of data.live.temperatures)
-    if (!best || reading.celsius > best.celsius) best = reading;
-  return best;
-}
-
-function sensorName(label) {
-  return label.replace(/^Package id 0$/, 'CPU package').replace(/^Package id /, 'CPU package ');
-}
-
-function describeMachine(data, age) {
-  const reading = hottestReading(data);
-  const { live: now } = data;
-  const read = `Read ${describeAge(age)}.`;
-  const uptime =
-    now.hostUptime === null
-      ? ''
-      : ` Up for ${formatSpan(now.hostUptime * 1000)} without a restart.`;
-  if (reading && reading.celsius >= data.thermalWarnC)
-    return {
-      verdict: 'Running hot.',
-      detail: `${sensorName(reading.label)} is at ${loose.format(reading.celsius)}${NBSP}°C, above the ${data.thermalWarnC}${NBSP}°C warning level. ${read}`,
-    };
-  if (now.memory && now.memory.percent >= 90)
-    return {
-      verdict: 'Short on memory.',
-      detail: `${loose.format(now.memory.percent)}% of memory is in use. ${read}`,
-    };
-  if (now.cpuPercent !== null && now.cpuPercent >= 80)
-    return {
-      verdict: 'Working hard.',
-      detail: `The CPU is at ${loose.format(now.cpuPercent)}%. ${read}`,
-    };
-  if (reading && reading.celsius > data.thermalRecoverC)
-    return {
-      verdict: 'Warm, but within limits.',
-      detail: `The hottest sensor is at ${loose.format(reading.celsius)}${NBSP}°C; the warning level is ${data.thermalWarnC}${NBSP}°C. ${read}`,
-    };
-  return { verdict: 'All quiet.', detail: `${read}${uptime}` };
-}
 
 function setState(state, message) {
   document.body.dataset.state = state;
@@ -273,12 +233,20 @@ function renderLive() {
   }
   setText('sensor-note', `Counted as cool again at ${data.thermalRecoverC}${NBSP}°C or below.`);
 
-  const archive = data.history;
+  setText(
+    'monitor-note',
+    `Host uptime: ${now.hostUptime === null ? 'not reported' : formatSpan(now.hostUptime * 1000)}. Monitor uptime: ${formatSpan(now.botUptime * 1000)}. Readings every minute.`,
+  );
+  renderArchiveNote();
+}
+
+function renderArchiveNote() {
+  if (!live) return;
   setText(
     'version',
-    archive?.firstAt != null
-      ? `optiplex v${data.version}. ${whole.format(archive.totalSamples)} readings since ${dateOnly.format(new Date(archive.firstAt))}.`
-      : `optiplex v${data.version}`,
+    history?.firstAt != null
+      ? `optiplex v${live.data.version}. ${whole.format(history.totalSamples)} readings since ${dateOnly.format(new Date(history.firstAt))}.`
+      : `optiplex v${live.data.version}`,
   );
 }
 
@@ -288,6 +256,70 @@ function renderLive() {
 
 function currentWindow() {
   return history && windowKey ? (history.windows.find((w) => w.key === windowKey) ?? null) : null;
+}
+
+function renderTrends() {
+  const key = availableWindows(history).includes('1h') ? '1h' : 'all';
+  const window = history?.windows.find((w) => w.key === key) ?? null;
+  const period = key === '1h' ? 'Last hour' : 'All recorded history';
+  setText(
+    'trends-period',
+    window ? `${period} ending ${clock.format(window.to - 1)}` : 'Waiting for history',
+  );
+  for (const metric of ['cpu', 'memory', 'temperature']) {
+    const spec = METRICS[metric];
+    const chart = $(`trend-${metric}`);
+    const aggregate = window?.[metric] ?? null;
+    const points = window?.points ?? [];
+    const values = points.map((point) => point[metric]).filter((value) => value !== null);
+    const scale = valueScale(metric, values, live?.data.thermalWarnC ?? null);
+    chart.replaceChildren();
+    setText(`trend-${metric}-average`, aggregate ? spec.format(aggregate.mean) : '–');
+    setText(
+      `trend-${metric}-note`,
+      aggregate
+        ? `Scale ${spec.tick(scale.min)}–${spec.tick(scale.max)} · peak ${spec.format(aggregate.max)}`
+        : 'No recorded readings yet.',
+    );
+    chart.setAttribute(
+      'aria-label',
+      aggregate
+        ? `${spec.name}, ${period.toLowerCase()}: average ${spec.format(aggregate.mean)}, peak ${spec.format(aggregate.max)}. Gaps mean no readings.`
+        : `${spec.name} trend: no readings available.`,
+    );
+    for (const y of [10, 48, 86])
+      chart.append(svg('line', { x1: 4, x2: 316, y1: y, y2: y, class: 'trend-grid-line' }));
+    if (!window || !aggregate || window.to <= window.from) {
+      chart.append(
+        svg(
+          'text',
+          { x: 160, y: 52, 'text-anchor': 'middle', class: 'trend-empty' },
+          'No readings',
+        ),
+      );
+      continue;
+    }
+    const x = (at) => 4 + ((at - window.from) / (window.to - window.from)) * 312;
+    const y = (value) => 86 - ((value - scale.min) / (scale.max - scale.min)) * 76;
+    for (const run of runsAndGaps(points, metric, window.from, window.to).runs) {
+      if (run.length === 1)
+        chart.append(
+          svg('circle', { cx: x(run[0].at), cy: y(run[0].value), r: 2.5, class: 'trend-dot' }),
+        );
+      else
+        chart.append(
+          svg('path', {
+            d: run
+              .map(
+                (point, i) =>
+                  `${i ? 'L' : 'M'}${x(point.at).toFixed(1)},${y(point.value).toFixed(1)}`,
+              )
+              .join(''),
+            class: 'trend-series',
+          }),
+        );
+    }
+  }
 }
 
 function svg(tag, attributes = {}, text) {
@@ -607,6 +639,8 @@ function syncControls() {
 }
 
 function renderHistory() {
+  renderArchiveNote();
+  renderTrends();
   syncControls();
   renderChart();
   renderHistoryText();
@@ -700,6 +734,7 @@ async function syncHistory(signal) {
   if (wanted === null || wanted === undefined || history?.generatedAt === wanted) return;
   try {
     const next = await (await request('/api/history', signal, { cache: 'no-cache' })).json();
+    if (signal.aborted) return;
     if (!Array.isArray(next?.windows)) throw new Error('Unsupported history');
     history = next;
     renderHistory();

@@ -12,6 +12,8 @@ SSH/Tailscale rules, router configuration and private `history-data` volume.
 ## What becomes public
 
 - Latest host CPU usage, memory, swap, load averages, host/bot uptime and coretemp readings.
+- A black dashboard with soft-white text, the turquoise dvc. accent, and three recent-trend
+  graphs for CPU, memory and temperature alongside the detailed history chart.
 - Retained CPU/memory/hottest-temperature averages, minima and maxima, with 96
   time buckets for 1h, 6h, 24h, 7d, 30d, 365d and all recorded time.
 - Hardware details already displayed in the page and the monitor version.
@@ -37,9 +39,11 @@ a burst of visitors does not reach your home connection for every file. The page
 `/api/live` (about 1 KB) every 30 seconds and fetches `/api/history` (about 45 KB) only when a
 newer export exists. `/api/metrics` still returns both in a single response.
 
-The page is plain HTML, one stylesheet and two scripts, with no build step. The font
-(IBM Plex Sans, SIL Open Font License; the licence sits next to the files) is served from
-`web/fonts/`, never from a CDN. Every asset the page references carries `?v=<hash>`,
+The page is plain HTML, one stylesheet and two scripts, with no build step. The text font
+(IBM Plex Sans) and dvc. wordmark (League Spartan Bold) are served from
+`web/fonts/`, never from a CDN. Both SIL Open Font Licenses sit beside the font files. The wordmark uses
+`letter-spacing: -0.082em`, matching Canva tracking `-82` at any font size.
+League Spartan comes unchanged from [the upstream project](https://github.com/theleagueof/league-spartan/tree/27341b9bf93a2c7faa140538a64ce342486c5fb5/fonts/webfonts). Every asset the page references carries `?v=<hash>`,
 including the font URLs inside the stylesheet, so a changed file is never served from an old
 cache. `web/chart-model.js` holds the chart arithmetic (scales, ticks, gaps, freshness) with no
 DOM access, and `test/chart-model.test.mjs` runs exactly that file. The server serves only the

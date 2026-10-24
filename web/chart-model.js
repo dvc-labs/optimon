@@ -111,7 +111,9 @@ function generateTicks(unit, n, from, to) {
     for (const month = new Date(start); month.getTime() <= to; month.setMonth(month.getMonth() + n))
       if (month.getTime() >= from) out.push(month.getTime());
   }
-  return out;
+  // A nonexistent local time during the spring jump resolves to the next hour.
+  // Deduplicate it against that hour's real tick and keep timestamps ordered.
+  return [...new Set(out)].sort((a, b) => a - b);
 }
 
 /** Tick times on tidy local boundaries: the smallest step that gives at most `maxTicks`. */
@@ -230,4 +232,59 @@ export function coverageSentence(count, from, to, locale = 'en-GB') {
   const share = ((Math.min(count, expected) / expected) * 100).toFixed(1);
   const n = new Intl.NumberFormat(locale);
   return `${share}% of the minutes in this period have a reading (${n.format(count)} of ${n.format(expected)}).`;
+}
+
+// Plain status descriptions belong beside the chart model, so missing readings can be tested.
+const loose = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
+export function hottestReading(data) {
+  let best = null;
+  for (const reading of data.live.temperatures)
+    if (!best || reading.celsius > best.celsius) best = reading;
+  return best;
+}
+
+export function sensorName(label) {
+  return label.replace(/^Package id 0$/, 'CPU package').replace(/^Package id /, 'CPU package ');
+}
+
+export function describeMachine(data, age) {
+  const reading = hottestReading(data);
+  const { live: now } = data;
+  const read = `Read ${describeAge(age)}.`;
+  const uptime =
+    now.hostUptime === null
+      ? ''
+      : ` Up for ${formatSpan(now.hostUptime * 1000)} without a restart.`;
+  if (reading && reading.celsius >= data.thermalWarnC)
+    return {
+      verdict: 'Running hot.',
+      detail: `${sensorName(reading.label)} is at ${loose.format(reading.celsius)}${NBSP}°C, above the ${data.thermalWarnC}${NBSP}°C warning level. ${read}`,
+    };
+  if (now.memory && now.memory.percent >= 90)
+    return {
+      verdict: 'Short on memory.',
+      detail: `${loose.format(now.memory.percent)}% of memory is in use. ${read}`,
+    };
+  if (now.cpuPercent !== null && now.cpuPercent >= 80)
+    return {
+      verdict: 'Working hard.',
+      detail: `The CPU is at ${loose.format(now.cpuPercent)}%. ${read}`,
+    };
+  if (reading && reading.celsius > data.thermalRecoverC)
+    return {
+      verdict: 'Warm, but within limits.',
+      detail: `The hottest sensor is at ${loose.format(reading.celsius)}${NBSP}°C; the warning level is ${data.thermalWarnC}${NBSP}°C. ${read}`,
+    };
+  const missing = [
+    now.cpuPercent === null ? 'CPU use' : null,
+    now.memory === null ? 'memory use' : null,
+    reading === null ? 'temperatures' : null,
+  ].filter(Boolean);
+  if (missing.length)
+    return {
+      verdict: missing.length === 3 ? 'Readings unavailable.' : 'Some readings unavailable.',
+      detail: `${read} Not reported: ${missing.join(', ')}.`,
+    };
+  return { verdict: 'All quiet.', detail: `${read}${uptime}` };
 }

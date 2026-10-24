@@ -8,9 +8,8 @@
       name="description"
       content="Live CPU, memory and temperature readings, and their history, from a Dell OptiPlex home server."
     />
-    <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#e8eae5" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#121412" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <link rel="canonical" href="__PUBLIC_URL__/" />
     <meta property="og:type" content="website" />
@@ -43,6 +42,13 @@
     <link
       rel="preload"
       href="/assets/fonts/ibm-plex-sans-latin-600-normal.woff2?v=__ASSET_VERSION__"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/fonts/league-spartan-bold.woff2?v=__ASSET_VERSION__"
       as="font"
       type="font/woff2"
       crossorigin
@@ -124,6 +130,50 @@
             </dd>
           </div>
         </dl>
+      </section>
+      <section class="trends" aria-labelledby="trends-title">
+        <div class="trends-heading">
+          <h2 id="trends-title">Recent trends</h2>
+          <p class="fine" id="trends-period">Waiting for history</p>
+        </div>
+        <div class="trend-grid">
+          <figure class="trend">
+            <figcaption>
+              CPU <span><strong id="trend-cpu-average">–</strong> avg</span>
+            </figcaption>
+            <svg
+              id="trend-cpu"
+              viewBox="0 0 320 96"
+              role="img"
+              aria-label="CPU trend, waiting for readings"
+            ></svg>
+            <p class="fine" id="trend-cpu-note">No recorded readings yet.</p>
+          </figure>
+          <figure class="trend">
+            <figcaption>
+              Memory <span><strong id="trend-memory-average">–</strong> avg</span>
+            </figcaption>
+            <svg
+              id="trend-memory"
+              viewBox="0 0 320 96"
+              role="img"
+              aria-label="Memory trend, waiting for readings"
+            ></svg>
+            <p class="fine" id="trend-memory-note">No recorded readings yet.</p>
+          </figure>
+          <figure class="trend">
+            <figcaption>
+              Temperature <span><strong id="trend-temperature-average">–</strong> avg</span>
+            </figcaption>
+            <svg
+              id="trend-temperature"
+              viewBox="0 0 320 96"
+              role="img"
+              aria-label="Temperature trend, waiting for readings"
+            ></svg>
+            <p class="fine" id="trend-temperature-note">No recorded readings yet.</p>
+          </figure>
+        </div>
       </section>
       <section class="history" aria-labelledby="history-title">
         <div class="history-head">

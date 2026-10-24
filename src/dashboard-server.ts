@@ -35,6 +35,14 @@ const assets = new Map<string, readonly [file: string, type: string, policy: Pol
     ['fonts/ibm-plex-sans-latin-600-normal.woff2', 'font/woff2', 'versioned'],
   ],
   ['/assets/fonts/OFL.txt', ['fonts/OFL.txt', 'text/plain; charset=utf-8', 'static']],
+  [
+    '/assets/fonts/league-spartan-bold.woff2',
+    ['fonts/league-spartan-bold.woff2', 'font/woff2', 'versioned'],
+  ],
+  [
+    '/assets/fonts/league-spartan-OFL.txt',
+    ['fonts/league-spartan-OFL.txt', 'text/plain; charset=utf-8', 'static'],
+  ],
   ['/assets/preview.png', ['preview.png', 'image/png', 'static']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml', 'static']],
 ]);

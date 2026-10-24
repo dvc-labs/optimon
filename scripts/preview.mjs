@@ -3,7 +3,7 @@
 //     [--scenario normal|young|stale|hot]
 // normal: ten days of history with two outages. young: forty minutes of history.
 // stale: the last reading is 25 minutes old. hot: the CPU package is above the warning level.
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -120,10 +120,22 @@ const server = await createDashboard(
 );
 // A same-origin, development-only frame exercises actual mobile media queries.
 // The production server keeps frame-ancestors 'none' and has no preview routes.
+const ogCard = (await readFile(new URL('./og-card.html', import.meta.url), 'utf8')).replaceAll(
+  '../web/fonts/',
+  '/assets/fonts/',
+);
 const [application] = server.listeners('request');
 server.removeAllListeners('request');
 server.on('request', (request, response) => {
   response.setHeader('X-Optiplex-Preview', 'sample-data');
+  if (request.url === '/__preview/og-card') {
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    response.end(ogCard);
+    return;
+  }
   if (request.url?.startsWith('/__preview')) {
     const width = new URL(request.url, 'http://localhost').searchParams.get('width');
     const size = ['320', '390', '768'].includes(width) ? width : '390';
