@@ -26,3 +26,9 @@ Runtime upgrades must keep the Docker images, package engine range, CI and
 compiler package available during installation; dev tools are pruned from the
 runtime image. CI audits development dependencies as well as runtime packages
 and imports the compiled commands inside the actual runtime image without credentials.
+
+History uses a capped, versioned JSON file on its own volume. Preserve atomic saves,
+strict input validation, safe error logging and the 24-hour/1440-sample bounds.
+Test fresh-process restoration, failed writes, corrupted input and retention across
+restarts. The container check must reuse a named volume between two non-root,
+read-only containers. Keep raw storage paths and error contents out of Discord.

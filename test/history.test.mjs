@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { History, HISTORY_LIMIT, HISTORY_MS } from '../dist/history.js';
+import { History, HISTORY_LIMIT, HISTORY_MS, isHistoryPoint } from '../dist/history.js';
 import { snapshot } from './fixtures.mjs';
 
 const now = snapshot().capturedAt.getTime();
@@ -62,4 +62,35 @@ test('history retention is capped by count and time, and a clock reset removes f
   history.record(snapshot({ capturedAt: new Date(NaN) }));
   assert.equal(history.size, 1);
   assert.equal(new History().summary(1440, now).count, 0, 'restart begins without historical samples');
+});
+
+test('restoration keeps recent readings, deduplicates and leaves offline periods as gaps', () => {
+  const history = new History();
+  const point = (agoMinutes, cpu) => ({ at: now - agoMinutes * 60_000, cpu, memory: 25, temperature: 31 });
+  history.restore([point(1, 20), point(2000, 99), point(-1, 99), point(59, 10), point(1, 30)], now);
+  const result = history.summary(60, now);
+  assert.equal(result.count, 2);
+  assert.equal(result.cpu.mean, 20);
+  assert.equal(result.firstAt, now - 59 * 60_000);
+  assert.equal(result.lastAt, now - 60_000);
+  assert.equal(result.cpu.graph.slice(1, -1), '·'.repeat(22));
+  const exported = history.exportPoints(now);
+  exported[0].cpu = 99;
+  assert.equal(history.summary(60, now).cpu.min, 10, 'exported data cannot mutate live history');
+  assert.deepEqual(history.exportPoints(now + HISTORY_MS + 1), []);
+  history.restore(Array.from({ length: HISTORY_LIMIT + 10 }, (_, i) => ({
+    ...point(1, 50), at: now - 10000 + i,
+  })), now);
+  assert.equal(history.size, HISTORY_LIMIT);
+});
+
+test('stored readings require finite, bounded metrics while preserving missing values', () => {
+  const valid = { at: now, cpu: 0, memory: 100, temperature: -30 };
+  assert.equal(isHistoryPoint(valid), true);
+  assert.equal(isHistoryPoint({ at: now, cpu: null, memory: null, temperature: null }), true);
+  for (const invalid of [null, {}, { ...valid, at: NaN }, { ...valid, at: -1 },
+    { ...valid, at: 1.5 }, { ...valid, cpu: 101 }, { ...valid, memory: Infinity },
+    { ...valid, temperature: 151 }, { ...valid, temperature: '31' }]) {
+    assert.equal(isHistoryPoint(invalid), false);
+  }
 });

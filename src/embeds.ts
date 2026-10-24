@@ -4,6 +4,7 @@ import type { Snapshot } from './metrics.js';
 import { hottestTemperature } from './metrics.js';
 import type { ReportStatus } from './controls.js';
 import type { HistorySummary, MetricSummary } from './history.js';
+import type { HistoryStorageStatus } from './storage.js';
 import { THERMAL_WARN_C, THERMAL_RECOVER_C, type ThermalEvent } from './monitoring.js';
 import { VERSION } from './version.js';
 
@@ -73,7 +74,7 @@ export function helpEmbed(): EmbedBuilder {
       { name: 'Live readings', value: '`/stats` — host CPU, RAM, swap and temperatures.\n`/uptime` — separate host/bot uptime and estimated start times.' },
       { name: 'Nerd corner', value: '`/history` — choose the last 1h, 6h or 24h.\n`/ping` — Discord heartbeat and API acknowledgement latency.\n`/vibe` — a playful take on the latest readings.' },
       { name: 'Owner controls · private replies', value: '`/diagnostics` — bot resources and reporting status.\n`/snapshot` — post to the configured reporting channel.\n`/pause` / `/resume` — temporarily pause scheduled reports.' },
-      { name: 'How monitoring works', value: 'Background samples about once a minute; on-demand readings can be cached for up to 15 seconds. History stays in memory for up to 24 hours and resets on restart. Thermal alerts keep running during a report pause.' },
+      { name: 'How monitoring works', value: 'Background samples about once a minute; on-demand readings can be cached for up to 15 seconds. Up to 24 hours of history is saved to persistent storage and restored after restarts. Thermal alerts keep running during a report pause.' },
     );
 }
 
@@ -104,7 +105,7 @@ export function historyEmbed(history: HistorySummary): EmbedBuilder {
   field('Host memory used', history.memory, '%');
   field('Hottest CPU sensor', history.temperature, ' °C');
   if (history.firstAt !== null && history.lastAt !== null) embed.addFields({
-    name: 'Recorded coverage', value: `${timestamp(history.firstAt, 't')} → ${timestamp(history.lastAt, 't')}\nHistory resets on bot restart. These are sampled readings, not continuous measurements.`,
+    name: 'Recorded coverage', value: `${timestamp(history.firstAt, 't')} → ${timestamp(history.lastAt, 't')}\nSaved history survives restarts. Offline periods appear as gaps; these are sampled readings, not continuous measurements.`,
   });
   return embed;
 }
@@ -139,15 +140,17 @@ export function vibeEmbed(snapshot: Snapshot): EmbedBuilder {
 export interface Diagnostics {
   rss: number; heapUsed: number; heapTotal: number;
   gatewayMs: number; historySize: number; reports: ReportStatus; now: number;
+  historyStorage: HistoryStorageStatus;
 }
 export function diagnosticsEmbed(snapshot: Snapshot, config: Config, data: Diagnostics): EmbedBuilder {
   return baseEmbed('Optiplex · Owner diagnostics')
-    .setDescription('Bot process resources and telemetry status. Values describe the current process lifetime.')
+    .setDescription('Bot process resources, persisted history and telemetry status. Process counters reset when the bot restarts.')
     .addFields(
       { name: 'Bot RAM · RSS', value: `${(data.rss / 1024 ** 2).toFixed(1)} MiB`, inline: true },
       { name: 'JavaScript heap', value: `${(data.heapUsed / 1024 ** 2).toFixed(1)} / ${(data.heapTotal / 1024 ** 2).toFixed(1)} MiB used / allocated`, inline: true },
       { name: 'Bot uptime', value: formatDuration(process.uptime()), inline: true },
-      { name: 'History', value: `${data.historySize} / 1440 samples · memory only`, inline: true },
+      { name: 'History', value: `${data.historySize} / 1440 samples · 24h retention`, inline: true },
+      { name: 'History storage', value: `${data.historyStorage.healthy ? 'Healthy · persistent file' : 'Degraded · saving failed; retrying each sample'}\nLast successful save: ${data.historyStorage.lastSavedAt === null ? 'None yet' : timestamp(data.historyStorage.lastSavedAt)}` },
       { name: 'Snapshot age', value: `${Math.max(0, Math.round((data.now - snapshot.capturedAt.getTime()) / 1000))} seconds`, inline: true },
       { name: 'Gateway heartbeat', value: data.gatewayMs >= 0 && Number.isFinite(data.gatewayMs) ? `${Math.round(data.gatewayMs)} ms` : 'Waiting', inline: true },
       { name: 'Scheduled reports', value: data.reports.pausedUntil

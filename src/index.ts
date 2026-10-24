@@ -14,6 +14,7 @@ import { collectSnapshot, hottestTemperature } from './metrics.js';
 import { MetricsCache, SAMPLE_INTERVAL_MS, ThermalWatch } from './monitoring.js';
 import { BotReporter } from './reporter.js';
 import { scheduleReports } from './scheduler.js';
+import { HistoryFileStore } from './storage.js';
 import { VERSION } from './version.js';
 
 // Local convenience only: Docker excludes .env and receives runtime variables from Coolify.
@@ -25,13 +26,24 @@ try { config = loadConfig(); } catch (error) {
   process.exit(1);
 }
 
+const history = new History();
+const historyStorage = new HistoryFileStore(config.historyFile);
+try {
+  history.restore(await historyStorage.load());
+  // Validate write access before connecting; never silently overwrite invalid history.
+  await historyStorage.save(history.exportPoints());
+  log('history_restored', { samples: history.size, retentionHours: 24 });
+} catch (error) {
+  log('history_storage_initialization_failed', safeError(error));
+  process.exit(1);
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds], allowedMentions: { parse: [] },
   rest: { timeout: 15_000, retries: 2 },
 });
 const reporter = new BotReporter(client, config);
 const reports = new ReportControls();
-const history = new History();
 const thermal = new ThermalWatch();
 const cache = new MetricsCache(async () => {
   const snapshot = await collectSnapshot(config.procPath, config.sensorPath);
@@ -39,7 +51,7 @@ const cache = new MetricsCache(async () => {
   return snapshot;
 });
 const commandContext: CommandContext = {
-  config, cache, history, reports, reporter, cooldown: new Cooldown(10_000),
+  config, cache, history, historyStorage, reports, reporter, cooldown: new Cooldown(10_000),
   manualCooldown: new Cooldown(60_000, 1), gatewayPing: () => client.ws.ping,
 };
 let initialized = false;
@@ -51,6 +63,9 @@ async function sample(): Promise<void> {
   const snapshot = await cache.getSnapshot();
   if (shuttingDown) return;
   history.record(snapshot);
+  try { await historyStorage.save(history.exportPoints()); }
+  catch (error) { log('history_save_failed', safeError(error)); }
+  if (shuttingDown) return;
   if (client.isReady()) {
     const temperature = hottestTemperature(snapshot);
     const readings = [temperature === null ? null : `${temperature.toFixed(0)} °C`,
@@ -91,6 +106,8 @@ async function shutdown(code: number): Promise<void> {
   heartbeat();
   const deadline = setTimeout(() => process.exit(code), 5000);
   deadline.unref();
+  try { await historyStorage.save(history.exportPoints()); }
+  catch (error) { log('history_shutdown_save_failed', safeError(error)); }
   await client.destroy();
   process.exit(code);
 }

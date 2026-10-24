@@ -1,4 +1,4 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 
 export interface Config {
   token: string;
@@ -11,6 +11,7 @@ export interface Config {
   intervalMinutes: number;
   procPath: string;
   sensorPath: string;
+  historyFile: string;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -49,6 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!isAbsolute(procPath) || !isAbsolute(sensorPath)) {
     throw new Error('Metric paths must be absolute paths.');
   }
+  const historyFile = env.HISTORY_FILE?.trim() || resolve('data/history.json');
+  if (!isAbsolute(historyFile)) throw new Error('HISTORY_FILE must be an absolute path.');
   return {
     token: required(env, 'DISCORD_TOKEN'),
     applicationId: snowflake(applicationId, 'APPLICATION_ID'),
@@ -60,5 +63,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     intervalMinutes: Number(interval),
     procPath,
     sensorPath,
+    historyFile,
   };
 }

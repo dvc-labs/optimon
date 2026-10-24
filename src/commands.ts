@@ -7,12 +7,13 @@ import { aboutEmbed, baseEmbed, diagnosticsEmbed, helpEmbed, historyEmbed, pingE
 import type { History } from './history.js';
 import type { MetricsCache } from './monitoring.js';
 import type { BotReporter } from './reporter.js';
+import type { HistoryFileStore } from './storage.js';
 
 const PUBLIC_COMMANDS = [
   ['about', 'About the Optiplex bot and its version.'],
   ['stats', 'Current host CPU, RAM, swap and temperatures.'],
   ['uptime', 'Host and bot uptimes, with estimated start times.'],
-  ['history', 'Sampled trends since this bot started.'],
+  ['history', 'Recorded CPU, RAM and temperature trends.'],
   ['ping', 'Measure this bot’s connection to Discord.'],
   ['vibe', 'Ask how the tiny Dell is feeling.'],
   ['help', 'Commands, sampling and owner controls.'],
@@ -56,6 +57,7 @@ export interface CommandContext {
   config: Config; cache: MetricsCache; history: History; reports: ReportControls;
   reporter: BotReporter; cooldown: Cooldown; manualCooldown: Cooldown;
   gatewayPing: () => number;
+  historyStorage: Pick<HistoryFileStore, 'status'>;
 }
 
 export async function handleCommand(interaction: ChatInputCommandInteraction, context: CommandContext): Promise<boolean> {
@@ -108,7 +110,7 @@ export async function handleCommand(interaction: ChatInputCommandInteraction, co
       const memory = process.memoryUsage();
       return edit(diagnosticsEmbed(snapshot, config, { rss: memory.rss, heapUsed: memory.heapUsed,
         heapTotal: memory.heapTotal, gatewayMs: context.gatewayPing(), historySize: history.size,
-        reports: reports.status(), now: Date.now() }));
+        reports: reports.status(), now: Date.now(), historyStorage: context.historyStorage.status() }));
     }
     if (name === 'snapshot') {
       const remaining = context.manualCooldown.take('snapshot');

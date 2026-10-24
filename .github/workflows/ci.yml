@@ -44,3 +44,15 @@ jobs:
               import { VERSION } from "./dist/version.js";
               console.log(`Optiplex v${VERSION}: ${commandDefinitions().length} commands on ${process.version}`);
             '
+      - name: Verify history across replacement containers
+        run: |
+          history_volume="optiplex-history-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create "$history_volume"
+          trap 'docker volume rm "$history_volume" > /dev/null' EXIT
+          for phase in save restore; do
+            docker run --rm --network none --read-only --cap-drop ALL \
+              --security-opt no-new-privileges:true \
+              --mount "type=volume,source=$history_volume,target=/app/data" \
+              --env "HISTORY_SMOKE_PHASE=$phase" -i optiplex-ci \
+              node --input-type=module < test/storage-container.mjs
+          done

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isAbsolute, resolve } from 'node:path';
 import { loadConfig } from '../dist/config.js';
 import { safeError } from '../dist/log.js';
 
@@ -46,6 +47,14 @@ test('thermal alerts default on and reject ambiguous configuration values', () =
   for (const invalid of ['yes', '0', 'maybe']) {
     assert.throws(() => loadConfig({ ...env, THERMAL_ALERTS_ENABLED: invalid }), /THERMAL_ALERTS_ENABLED/);
   }
+});
+
+test('history defaults to a local data directory and explicit overrides must be absolute', () => {
+  assert.equal(loadConfig(env).historyFile, resolve('data/history.json'));
+  assert.equal(isAbsolute(loadConfig(env).historyFile), true);
+  assert.equal(loadConfig({ ...env, HISTORY_FILE: '/app/data/history.json' }).historyFile, '/app/data/history.json');
+  assert.throws(() => loadConfig({ ...env, HISTORY_FILE: 'relative-secret-path/history.json' }),
+    (error) => error.message === 'HISTORY_FILE must be an absolute path.');
 });
 
 test('error diagnostics omit tokens, request URLs and request bodies', () => {
