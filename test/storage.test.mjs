@@ -3,13 +3,20 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { History, HISTORY_LIMIT, HISTORY_MS } from '../dist/history.js';
 import { HistoryFileStore, MAX_HISTORY_BYTES } from '../dist/storage.js';
 
 const now = Date.now();
-const point = (overrides = {}) => ({ at: now - 60_000, cpu: 12.5, memory: 25, temperature: 31, ...overrides });
+const point = (overrides = {}) => ({
+  at: now - 60_000,
+  cpu: 12.5,
+  memory: 25,
+  temperature: 31,
+  ...overrides,
+});
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'optiplex-history-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -19,13 +26,23 @@ async function fixture(t) {
 
 test('a saved sample survives a new process being killed without a shutdown hook', async (t) => {
   const { path } = await fixture(t);
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
     import { HistoryFileStore } from './dist/storage.js';
     const store = new HistoryFileStore(process.argv[1]);
     await store.load();
     await store.save(JSON.parse(process.argv[2]));
     process.kill(process.pid, 'SIGKILL');
-  `, path, JSON.stringify([point()])], { cwd: new URL('../', import.meta.url), encoding: 'utf8' });
+  `,
+      path,
+      JSON.stringify([point()]),
+    ],
+    { cwd: new URL('../', import.meta.url), encoding: 'utf8' },
+  );
   assert.equal(child.signal, 'SIGKILL', child.stderr);
   const store = new HistoryFileStore(path);
   const history = new History();
@@ -68,11 +85,15 @@ test('queued writes capture their input and leave a complete, newest file', asyn
 test('startup rejects malformed, unsupported and invalid data without replacing it', async (t) => {
   const { path } = await fixture(t);
   await mkdir(join(path, '..'), { recursive: true });
-  for (const data of ['{"version":1,"points":[', '', 'null',
+  for (const data of [
+    '{"version":1,"points":[',
+    '',
+    'null',
     JSON.stringify({ version: 2, points: [point()] }),
     JSON.stringify({ version: 1, points: [point({ cpu: 1000 })] }),
     JSON.stringify({ version: 1, points: Array(HISTORY_LIMIT + 1).fill(point()) }),
-    '{"version":1,"points":[{"at":1,"cpu":1e309,"memory":0,"temperature":null}]}']) {
+    '{"version":1,"points":[{"at":1,"cpu":1e309,"memory":0,"temperature":null}]}',
+  ]) {
     await writeFile(path, data);
     const store = new HistoryFileStore(path);
     await assert.rejects(store.load(), { name: 'InvalidHistoryFile' });
@@ -81,24 +102,40 @@ test('startup rejects malformed, unsupported and invalid data without replacing 
   }
 });
 
-test('the bot rejects corrupt history before login and logs neither file contents nor credentials', async (t) => {
-  const { directory, path } = await fixture(t);
+test('an unsupported database schema stops before Discord login without changing data or exposing secrets', async (t) => {
+  const { directory } = await fixture(t);
+  const path = join(directory, 'future.sqlite');
+  const database = new DatabaseSync(path);
+  database.exec('PRAGMA user_version=2; CREATE TABLE future(value TEXT);');
+  database.close();
+  const before = await readFile(path);
   const token = 'fixture-token-that-must-not-appear';
-  const content = `private history content ${token}`;
-  await mkdir(join(path, '..'), { recursive: true });
-  await writeFile(path, content);
-  const child = spawnSync(process.execPath, [fileURLToPath(new URL('../dist/index.js', import.meta.url))], {
-    cwd: directory, encoding: 'utf8', timeout: 5000,
-    env: { DISCORD_TOKEN: token, APPLICATION_ID: '1562643787510063217',
-      GUILD_ID: '1562082957022204006', CHANNEL_ID: '1562960345860153444', HISTORY_FILE: path },
-  });
+  const child = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('../dist/index.js', import.meta.url))],
+    {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 5000,
+      env: {
+        DISCORD_TOKEN: token,
+        APPLICATION_ID: '1562643787510063217',
+        GUILD_ID: '1562082957022204006',
+        CHANNEL_ID: '1562960345860153444',
+        DATABASE_FILE: path,
+      },
+    },
+  );
   assert.equal(child.status, 1, child.stderr);
-  const entries = child.stdout.trim().split('\n').map((line) => JSON.parse(line));
+  const entries = child.stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert.equal(entries.length, 1);
-  assert.equal(entries[0].event, 'history_storage_initialization_failed');
-  assert.equal(entries[0].name, 'InvalidHistoryFile');
-  for (const secret of [token, content, path]) assert.ok(!(child.stdout + child.stderr).includes(secret));
-  assert.equal(await readFile(path, 'utf8'), content);
+  assert.equal(entries[0].event, 'telemetry_initialization_failed');
+  assert.equal(entries[0].name, 'UnsupportedTelemetrySchema');
+  for (const secret of [token, path]) assert.ok(!(child.stdout + child.stderr).includes(secret));
+  assert.deepEqual(await readFile(path), before);
 });
 
 test('oversized files and excessive writes are rejected within the storage bound', async (t) => {
@@ -106,7 +143,9 @@ test('oversized files and excessive writes are rejected within the storage bound
   await store.load();
   await store.save([point()]);
   const before = await readFile(path, 'utf8');
-  await assert.rejects(store.save(Array(HISTORY_LIMIT + 1).fill(point())), { name: 'InvalidHistoryFile' });
+  await assert.rejects(store.save(Array(HISTORY_LIMIT + 1).fill(point())), {
+    name: 'InvalidHistoryFile',
+  });
   assert.equal(await readFile(path, 'utf8'), before);
   await writeFile(path, ' '.repeat(MAX_HISTORY_BYTES + 1));
   await assert.rejects(new HistoryFileStore(path).load(), { name: 'InvalidHistoryFile' });
@@ -153,10 +192,14 @@ test('history and temporary file symlinks cannot redirect storage reads or write
 
 test('the complete history stays below the file limit and survives restoration', async (t) => {
   const { path, store } = await fixture(t);
-  const values = Array.from({ length: HISTORY_LIMIT }, (_, index) => point({
-    at: now - index * 60_000, cpu: 12.345678901234567, memory: 23.456789012345678,
-    temperature: 34.56789012345678,
-  }));
+  const values = Array.from({ length: HISTORY_LIMIT }, (_, index) =>
+    point({
+      at: now - index * 60_000,
+      cpu: 12.345678901234567,
+      memory: 23.456789012345678,
+      temperature: 34.56789012345678,
+    }),
+  );
   await store.load();
   await store.save(values);
   const bytes = (await stat(path)).size;

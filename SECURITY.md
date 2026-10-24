@@ -9,7 +9,7 @@ credentials or detailed exploit instructions in a public issue.
 
 ## Credentials and access
 
-- `DISCORD_TOKEN` is a secret. Store it as a Coolify runtime
+- `DISCORD_TOKEN` and optional `HEARTBEAT_URL` are secrets. Store it as a Coolify runtime
   variable. `.env` files are excluded from Git and the Docker build context.
 - If a credential is exposed, reset the bot token,
   update Coolify and redeploy. Removing a leaked value from a commit is not revocation.
@@ -23,7 +23,9 @@ credentials or detailed exploit instructions in a public issue.
   check. Owner replies are ephemeral. Forced snapshots go only to the configured
   reporting channel, with a separate global cooldown.
 - Owner controls affect this bot's reporting, not the host. There is no shell
-  execution, shutdown/restart command, arbitrary URL fetch or user-selected file read.
+  execution, shutdown/restart command, command-selected URL fetch or user-selected file read.
+  The optional administrator-configured HTTPS heartbeat sends no metrics, refuses
+  redirects and has a five-second timeout. Never share its ping URL publicly.
 - Runtime error logs contain selected error identifiers, not raw Discord errors,
   request bodies, authorization headers or request URLs.
 
@@ -40,20 +42,32 @@ information; treat the Discord reporting channel as visible to its members.
 Public command responses also expose aggregate metrics in the channel where they
 are invoked, and the bot's activity exposes a CPU/RAM/temperature summary. Restrict
 command and channel access in Discord if those readings should be private.
-Trend history is bounded to 1440 compact samples and 24 hours, with a writable named
-volume at `/app/data`. Only timestamps and aggregate CPU, RAM and CPU temperature
-readings are stored; there are no credentials, Discord messages or user IDs in the
-history format. The image initializes the directory for its non-root user with mode
-0700; history files are written with mode 0600. The versioned input format is checked
-and capped at 1 MiB before parsing. Saves use a file in the same directory, fsync and
-atomic rename, followed by a directory sync. Invalid or unsupported history stops
-startup without replacing the file. Later write failures are logged safely and
-shown as degraded storage in owner diagnostics while monitoring continues.
-Use one writer per history volume and keep its permissions private. Retained
-history survives container replacement when the same volume is attached; it is
-local to the deployment server and is not a backup. Back it up before moving
-servers or deleting storage. Command cooldown state is bounded too. Reporting
-pauses, thermal state and counters remain temporary process state.
+The writable local volume at `/app/data` retains all timestamped CPU/RAM/temperature
+samples and recognized guild slash-command metadata indefinitely. Audit records
+include interaction, user, guild and channel IDs, command name, start/completion
+times, duration and outcome; **no arguments, message contents or credentials**.
+Denied and failed commands are recorded too. `/audit` requires the exact `ADMIN_ID`
+and replies privately. Limit who can read the volume, backups and Discord channel.
+
+The image creates the data directory with mode 0700; databases, backups and
+quarantined files use mode 0600. SQLite uses WAL, full synchronous commits, a
+250 ms busy timeout, versioned transactional schema creation and transactional,
+idempotent legacy migration. Keep the database on local storage, not a network
+share, with one bot writer. Only the RAM cache and retry buffer are bounded to
+1440 readings; no archive rows are automatically deleted. Disk usage therefore grows.
+
+Corrupt databases/legacy files are quarantined without logging their contents, then
+monitoring starts with a fresh archive and a visible recovery warning. This does
+not repair or recover the corrupt data. Unsupported schemas and unreadable/unsafe
+paths stop startup. Runtime save/audit failures are logged safely and exposed in
+diagnostics. Extended storage failure may lose new readings or audit records;
+exhausting the bounded sample retry buffer increments a visible drop counter.
+
+Use `npm run backup` to create a consistent standalone SQLite snapshot before
+backing up to R2 or moving servers; a raw copy of the live main file can miss
+committed WAL data. Volumes are not backups. Protect backup access and retain them
+according to your own privacy needs. Command cooldowns, reporting pauses, thermal
+state and process counters remain temporary process state.
 Dependencies and bot code must still be trusted: read-only mounts and containers
 do not make arbitrary code safe. Missing readings are shown as unavailable.
 

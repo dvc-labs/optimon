@@ -12,6 +12,8 @@ export interface Config {
   procPath: string;
   sensorPath: string;
   historyFile: string;
+  databaseFile: string;
+  heartbeatUrl: string | null;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -21,7 +23,11 @@ function required(env: NodeJS.ProcessEnv, key: string): string {
 }
 
 function snowflake(value: string, key: string): string {
-  if (!/^\d{17,20}$/.test(value) || BigInt(value) === 0n || BigInt(value) > 18_446_744_073_709_551_615n) {
+  if (
+    !/^\d{17,20}$/.test(value) ||
+    BigInt(value) === 0n ||
+    BigInt(value) > 18_446_744_073_709_551_615n
+  ) {
     throw new Error(`${key} must be a Discord ID stored as a string.`);
   }
   return value;
@@ -29,8 +35,11 @@ function snowflake(value: string, key: string): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const applicationId = env.APPLICATION_ID?.trim() || required(env, 'CLIENT_ID');
-  if (env.APPLICATION_ID?.trim() && env.CLIENT_ID?.trim() &&
-      env.APPLICATION_ID.trim() !== env.CLIENT_ID.trim()) {
+  if (
+    env.APPLICATION_ID?.trim() &&
+    env.CLIENT_ID?.trim() &&
+    env.APPLICATION_ID.trim() !== env.CLIENT_ID.trim()
+  ) {
     throw new Error('APPLICATION_ID and CLIENT_ID must match; only APPLICATION_ID is needed.');
   }
   const interval = env.STATS_INTERVAL_MINUTES?.trim() || '15';
@@ -43,7 +52,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const hostName = env.HOST_NAME?.trim() || 'optiplex';
   if (hostName.length > 64 || !/^[A-Za-z0-9 ._-]+$/.test(hostName)) {
-    throw new Error('HOST_NAME must contain at most 64 letters, numbers, spaces, dots, underscores or hyphens.');
+    throw new Error(
+      'HOST_NAME must contain at most 64 letters, numbers, spaces, dots, underscores or hyphens.',
+    );
   }
   const procPath = env.HOST_PROC_PATH || '/host-metrics/proc';
   const sensorPath = env.TEMP_SENSOR_PATH || '/host-metrics/hwmon';
@@ -52,6 +63,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const historyFile = env.HISTORY_FILE?.trim() || resolve('data/history.json');
   if (!isAbsolute(historyFile)) throw new Error('HISTORY_FILE must be an absolute path.');
+  const databaseFile = env.DATABASE_FILE?.trim() || resolve('data/optiplex.sqlite');
+  if (!isAbsolute(databaseFile) || databaseFile === historyFile)
+    throw new Error('DATABASE_FILE must be an absolute path different from HISTORY_FILE.');
+  const heartbeatUrl = env.HEARTBEAT_URL?.trim() || null;
+  if (heartbeatUrl) {
+    try {
+      const url = new URL(heartbeatUrl);
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error();
+    } catch {
+      throw new Error('HEARTBEAT_URL must be an HTTPS URL without user information or a fragment.');
+    }
+  }
   return {
     token: required(env, 'DISCORD_TOKEN'),
     applicationId: snowflake(applicationId, 'APPLICATION_ID'),
@@ -64,5 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     procPath,
     sensorPath,
     historyFile,
+    databaseFile,
+    heartbeatUrl,
   };
 }

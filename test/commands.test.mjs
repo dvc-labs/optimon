@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ApplicationCommandType, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import {
+  ApplicationCommand,
+  ApplicationCommandType,
+  Client,
+  Collection,
+  MessageFlags,
+  PermissionFlagsBits,
+} from 'discord.js';
 import { commandDefinitions, registerCommands, handleCommand } from '../dist/commands.js';
 import { Cooldown, ReportControls } from '../dist/controls.js';
 import { History } from '../dist/history.js';
@@ -12,23 +19,59 @@ function harness(settings = {}) {
   const events = [];
   const sent = [];
   const context = {
-    config: configuration, history: new History(), reports: new ReportControls(),
-    cache: new MetricsCache(async () => { events.push('read'); return snapshot({ capturedAt: new Date() }); }),
-    reporter: { send: async (embed) => { events.push('send'); sent.push(embed.toJSON()); } },
-    cooldown: new Cooldown(10_000), manualCooldown: new Cooldown(60_000, 1),
+    config: configuration,
+    history: new History(),
+    reports: new ReportControls(),
+    cache: new MetricsCache(async () => {
+      events.push('read');
+      return snapshot({ capturedAt: new Date() });
+    }),
+    reporter: {
+      send: async (embed) => {
+        events.push('send');
+        sent.push(embed.toJSON());
+      },
+    },
+    cooldown: new Cooldown(10_000),
+    manualCooldown: new Cooldown(60_000, 1),
     gatewayPing: () => 42,
-    historyStorage: { status: () => { events.push('storage-status'); return { healthy: true, lastSavedAt: Date.now() }; } },
+    historyStorage: {
+      status: () => {
+        events.push('storage-status');
+        return { healthy: true, lastSavedAt: Date.now() };
+      },
+    },
   };
+  context.archive = {
+    summary: (minutes) => context.history.summary(minutes),
+    compare: () => ({
+      current: context.history.summary(1440),
+      previous: new History().summary(1440),
+    }),
+    recentCommands: () => [],
+  };
+  context.heartbeatStatus = () => ({ enabled: false, lastSuccessAt: null, failures: 0 });
   function interaction(commandName = 'stats', options = {}) {
     const calls = [];
     return {
-      commandName, guildId: configuration.guildId, user: { id: ownerId },
+      commandName,
+      guildId: configuration.guildId,
+      user: { id: ownerId },
       memberPermissions: { has: (permission) => permission === PermissionFlagsBits.Administrator },
       options: { getInteger: (key) => options[key] ?? null },
       calls,
-      reply: async (payload) => { events.push('reply'); calls.push(['reply', payload]); },
-      deferReply: async (payload) => { events.push('defer'); calls.push(['defer', payload]); },
-      editReply: async (payload) => { events.push('edit'); calls.push(['edit', payload]); },
+      reply: async (payload) => {
+        events.push('reply');
+        calls.push(['reply', payload]);
+      },
+      deferReply: async (payload) => {
+        events.push('defer');
+        calls.push(['defer', payload]);
+      },
+      editReply: async (payload) => {
+        events.push('edit');
+        calls.push(['edit', payload]);
+      },
     };
   }
   return { context, events, sent, interaction };
@@ -36,29 +79,52 @@ function harness(settings = {}) {
 
 test('command registration exposes a bounded set of options and defaults owner commands to restricted', () => {
   const definitions = commandDefinitions().map((command) => command.toJSON());
-  assert.deepEqual(definitions.map((command) => command.name), [
-    'about', 'stats', 'uptime', 'history', 'ping', 'vibe', 'help',
-    'diagnostics', 'snapshot', 'pause', 'resume',
-  ]);
-  const ownerNames = ['diagnostics', 'snapshot', 'pause', 'resume'];
+  assert.deepEqual(
+    definitions.map((command) => command.name),
+    [
+      'about',
+      'stats',
+      'uptime',
+      'history',
+      'compare',
+      'ping',
+      'vibe',
+      'help',
+      'diagnostics',
+      'snapshot',
+      'pause',
+      'resume',
+      'audit',
+    ],
+  );
+  const ownerNames = ['diagnostics', 'snapshot', 'pause', 'resume', 'audit'];
   for (const definition of definitions) {
-    if (ownerNames.includes(definition.name)) assert.equal(definition.default_member_permissions, '0');
+    if (ownerNames.includes(definition.name))
+      assert.equal(definition.default_member_permissions, '0');
     else assert.equal(definition.default_member_permissions, undefined);
-    assert.ok(!definition.options.some((option) => option.type === 1 || option.type === 2),
-      'all commands must be directly invokable without a subcommand or group');
+    assert.ok(
+      !definition.options.some((option) => option.type === 1 || option.type === 2),
+      'all commands must be directly invokable without a subcommand or group',
+    );
   }
   const pause = definitions.find((command) => command.name === 'pause').options[0];
   assert.equal(pause.min_value, 5);
   assert.equal(pause.max_value, 1440);
   const hours = definitions.find((command) => command.name === 'history').options[0];
-  assert.deepEqual(hours.choices.map((choice) => choice.value), [1, 6, 24]);
+  assert.deepEqual(
+    hours.choices.map((choice) => choice.value),
+    [1, 6, 24, 168, 720, 8760],
+  );
 });
 
 test('registration retires only the old slash-command groups and is safe to repeat', async () => {
   const guildId = config().guildId;
   const registered = new Map([
     ['old-public', { id: 'old-public', name: 'optiplex', type: ApplicationCommandType.ChatInput }],
-    ['old-owner', { id: 'old-owner', name: 'optiplex-admin', type: ApplicationCommandType.ChatInput }],
+    [
+      'old-owner',
+      { id: 'old-owner', name: 'optiplex-admin', type: ApplicationCommandType.ChatInput },
+    ],
     ['other', { id: 'other', name: 'another-command', type: ApplicationCommandType.ChatInput }],
     ['context', { id: 'context', name: 'optiplex', type: ApplicationCommandType.User }],
   ]);
@@ -69,10 +135,13 @@ test('registration retires only the old slash-command groups and is safe to repe
       assert.equal(guild, guildId);
       created.push(definition.name);
     },
-    fetch: async (options) => { assert.deepEqual(options, { guildId }); return registered; },
+    fetch: async (options) => {
+      assert.deepEqual(options, { guildId });
+      return registered;
+    },
     delete: async (id, guild) => {
       assert.equal(guild, guildId);
-      assert.equal(created.length, 11, 'register every replacement before retiring the old groups');
+      assert.equal(created.length, 13, 'register every replacement before retiring the old groups');
       deleted.push(id);
       registered.delete(id);
     },
@@ -82,7 +151,7 @@ test('registration retires only the old slash-command groups and is safe to repe
   assert.equal(registered.has('other'), true);
   assert.equal(registered.has('context'), true);
   await registerCommands(manager, guildId);
-  assert.equal(created.length, 22);
+  assert.equal(created.length, 26);
   assert.deepEqual(deleted, ['old-public', 'old-owner']);
 });
 
@@ -90,18 +159,77 @@ test('failed command registration does not delete the old groups', async () => {
   let fetched = false;
   let deleted = false;
   const failure = new Error('fixture registration failure');
-  await assert.rejects(registerCommands({
-    create: async (definition) => { if (definition.name === 'history') throw failure; },
-    fetch: async () => { fetched = true; return new Map(); },
-    delete: async () => { deleted = true; },
-  }, config().guildId), failure);
-  assert.equal(fetched, false);
+  await assert.rejects(
+    registerCommands(
+      {
+        create: async (definition) => {
+          if (definition.name === 'history') throw failure;
+        },
+        fetch: async () => {
+          fetched = true;
+          return new Map();
+        },
+        delete: async () => {
+          deleted = true;
+        },
+      },
+      config().guildId,
+    ),
+    failure,
+  );
+  assert.equal(fetched, true);
   assert.equal(deleted, false);
+});
+
+test('unchanged commands require only one fetch and preserve unrelated application commands', async () => {
+  const client = new Client({ intents: [] });
+  const registered = new Collection(
+    commandDefinitions().map((builder, index) => {
+      const id = String(1562643787510063250n + BigInt(index));
+      const data = {
+        ...JSON.parse(JSON.stringify(builder.toJSON())),
+        id,
+        application_id: config().applicationId,
+        version: '1562643787510063299',
+        type: ApplicationCommandType.ChatInput,
+        nsfw: false,
+      };
+      return [id, new ApplicationCommand(client, data, null, config().guildId)];
+    }),
+  );
+  registered.set('unrelated', {
+    id: 'unrelated',
+    type: ApplicationCommandType.ChatInput,
+    name: 'unrelated',
+  });
+  registered.set('context', { id: 'context', type: ApplicationCommandType.User, name: 'optiplex' });
+  let fetches = 0;
+  const writes = [];
+  const manager = {
+    fetch: async () => {
+      fetches++;
+      return registered;
+    },
+    create: async (definition) => {
+      writes.push(definition.name);
+    },
+    delete: async () => {
+      assert.fail('unrelated commands must be preserved');
+    },
+  };
+  await registerCommands(manager, config().guildId);
+  assert.equal(fetches, 1);
+  assert.deepEqual(writes, []);
+  registered.find((command) => command.name === 'stats').description = 'old definition';
+  await registerCommands(manager, config().guildId);
+  assert.equal(fetches, 2);
+  assert.deepEqual(writes, ['stats']);
+  await client.destroy();
 });
 
 test('owner authorization fails closed even when the caller has Discord Administrator', async () => {
   for (const settings of [{}, { ADMIN_ID: '' }]) {
-    for (const command of ['diagnostics', 'snapshot', 'pause', 'resume']) {
+    for (const command of ['diagnostics', 'snapshot', 'pause', 'resume', 'audit']) {
       const { context, interaction, events, sent } = harness(settings);
       const request = interaction(command);
       request.user.id = '1562643787510063219';
@@ -137,7 +265,9 @@ test('guild and DM checks run before metrics or owner controls', async () => {
 test('live stats acknowledge before collecting and commands do not add history samples', async () => {
   const { context, interaction, events } = harness();
   let release;
-  const gate = new Promise((resolve) => { release = resolve; });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
   context.cache = new MetricsCache(async () => {
     events.push('read');
     await gate;
@@ -155,7 +285,7 @@ test('live stats acknowledge before collecting and commands do not add history s
 });
 
 test('about, help, history and Discord ping work without host readings', async () => {
-  for (const command of ['about', 'help', 'history', 'ping']) {
+  for (const command of ['about', 'help', 'history', 'compare', 'ping']) {
     const { context, interaction, events } = harness();
     const request = interaction(command);
     await handleCommand(request, context);
@@ -165,7 +295,7 @@ test('about, help, history and Discord ping work without host readings', async (
 });
 
 test('every owner reply is private and only the explicit snapshot command posts publicly', async () => {
-  for (const command of ['diagnostics', 'snapshot', 'pause', 'resume']) {
+  for (const command of ['diagnostics', 'snapshot', 'pause', 'resume', 'audit']) {
     const { context, interaction, sent } = harness();
     const request = interaction(command);
     await handleCommand(request, context);
@@ -175,7 +305,10 @@ test('every owner reply is private and only the explicit snapshot command posts 
     assert.equal(sent.length, command === 'snapshot' ? 1 : 0);
     if (command === 'snapshot') {
       assert.ok(context.reports.lastReportAt);
-      assert.match(request.calls[1][1].embeds[0].toJSON().description, new RegExp(context.config.channelId));
+      assert.match(
+        request.calls[1][1].embeds[0].toJSON().description,
+        new RegExp(context.config.channelId),
+      );
     }
     if (command === 'pause') {
       assert.equal(context.reports.isPaused(), true);
@@ -211,12 +344,17 @@ test('per-user command cooldowns do not block other users', async () => {
 
 test('a failed forced post records a failure without claiming success', async () => {
   const { context, interaction } = harness();
-  context.reporter.send = async () => { throw new Error('fixture permission failure'); };
+  context.reporter.send = async () => {
+    throw new Error('fixture permission failure');
+  };
   const request = interaction('snapshot');
   await assert.rejects(handleCommand(request, context), /fixture permission failure/);
   assert.equal(context.reports.lastReportAt, null);
   assert.equal(context.reports.failures, 1);
-  assert.deepEqual(request.calls.map(([method]) => method), ['defer']);
+  assert.deepEqual(
+    request.calls.map(([method]) => method),
+    ['defer'],
+  );
 });
 
 test('unknown commands are ignored instead of acknowledging another handler’s command', async () => {

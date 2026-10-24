@@ -16,3 +16,9 @@ data
 *.key
 test
 docs
+
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.corrupt-*
+*.migrated

@@ -2,12 +2,14 @@ export interface ReportStatus {
   pausedUntil: number | null;
   lastReportAt: number | null;
   failures: number;
+  thermalFailures: number;
 }
 
 export class ReportControls {
   private pauseUntil = 0;
   lastReportAt: number | null = null;
   failures = 0;
+  thermalFailures = 0;
 
   pause(minutes: number, now = Date.now()): number {
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440) {
@@ -16,17 +18,28 @@ export class ReportControls {
     this.pauseUntil = now + minutes * 60_000;
     return this.pauseUntil;
   }
-  resume(): void { this.pauseUntil = 0; }
-  isPaused(now = Date.now()): boolean { return this.pauseUntil > now; }
+  resume(): void {
+    this.pauseUntil = 0;
+  }
+  isPaused(now = Date.now()): boolean {
+    return this.pauseUntil > now;
+  }
   status(now = Date.now()): ReportStatus {
-    return { pausedUntil: this.isPaused(now) ? this.pauseUntil : null,
-      lastReportAt: this.lastReportAt, failures: this.failures };
+    return {
+      pausedUntil: this.isPaused(now) ? this.pauseUntil : null,
+      lastReportAt: this.lastReportAt,
+      failures: this.failures,
+      thermalFailures: this.thermalFailures,
+    };
   }
 }
 
 export class Cooldown {
   private until = new Map<string, number>();
-  constructor(private readonly intervalMs: number, private readonly limit = 1000) {}
+  constructor(
+    private readonly intervalMs: number,
+    private readonly limit = 1000,
+  ) {}
   take(key: string, now = Date.now()): number {
     for (const [id, expiry] of this.until) if (expiry <= now) this.until.delete(id);
     const remaining = (this.until.get(key) ?? 0) - now;

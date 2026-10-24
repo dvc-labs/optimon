@@ -2,10 +2,27 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export interface CpuCounters { total: bigint; idle: bigint; cores: number }
-export interface Memory { total: number; available: number; used: number; percent: number }
-export interface Swap { total: number; free: number; used: number; percent: number }
-export interface Temperature { label: string; celsius: number }
+export interface CpuCounters {
+  total: bigint;
+  idle: bigint;
+  cores: number;
+}
+export interface Memory {
+  total: number;
+  available: number;
+  used: number;
+  percent: number;
+}
+export interface Swap {
+  total: number;
+  free: number;
+  used: number;
+  percent: number;
+}
+export interface Temperature {
+  label: string;
+  celsius: number;
+}
 export interface Snapshot {
   capturedAt: Date;
   hostUptime: number | null;
@@ -38,7 +55,7 @@ export function cpuUsage(before: CpuCounters, after: CpuCounters): number | null
   const total = after.total - before.total;
   const idle = after.idle - before.idle;
   if (total <= 0n || idle < 0n || idle > total) return null;
-  return Math.max(0, Math.min(100, Number(total - idle) / Number(total) * 100));
+  return Math.max(0, Math.min(100, (Number(total - idle) / Number(total)) * 100));
 }
 
 export function parseMemory(text: string): Memory {
@@ -53,7 +70,7 @@ export function parseMemory(text: string): Memory {
     throw new Error('Invalid memory counters.');
   }
   const used = total - available;
-  return { total, available, used, percent: used / total * 100 };
+  return { total, available, used, percent: (used / total) * 100 };
 }
 
 export function parseSwap(text: string): Swap {
@@ -64,20 +81,28 @@ export function parseSwap(text: string): Swap {
   }
   const total = values.get('SwapTotal');
   const free = values.get('SwapFree');
-  if (total === undefined || free === undefined || !Number.isSafeInteger(total) ||
-      !Number.isSafeInteger(free) || free > total) throw new Error('Invalid swap counters.');
+  if (
+    total === undefined ||
+    free === undefined ||
+    !Number.isSafeInteger(total) ||
+    !Number.isSafeInteger(free) ||
+    free > total
+  )
+    throw new Error('Invalid swap counters.');
   const used = total - free;
-  return { total, free, used, percent: total === 0 ? 0 : used / total * 100 };
+  return { total, free, used, percent: total === 0 ? 0 : (used / total) * 100 };
 }
 
 export function hottestTemperature(snapshot: Snapshot): number | null {
   return snapshot.temperatures.length
-    ? Math.max(...snapshot.temperatures.map((sensor) => sensor.celsius)) : null;
+    ? Math.max(...snapshot.temperatures.map((sensor) => sensor.celsius))
+    : null;
 }
 
 export function parseUptime(text: string): number {
   const value = Number(text.trim().split(/\s+/)[0]);
-  if (!Number.isFinite(value) || value < 0 || text.trim() === '') throw new Error('Invalid uptime.');
+  if (!Number.isFinite(value) || value < 0 || text.trim() === '')
+    throw new Error('Invalid uptime.');
   return value;
 }
 
@@ -95,7 +120,8 @@ export async function readTemperatures(root: string): Promise<Temperature[]> {
   for (const directory of directories) {
     const path = join(root, directory);
     if ((await readFile(join(path, 'name'), 'utf8')).trim() !== 'coretemp') continue;
-    const files = (await readdir(path)).filter((name) => /^temp\d+_input$/.test(name))
+    const files = (await readdir(path))
+      .filter((name) => /^temp\d+_input$/.test(name))
       .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
     for (const file of files) {
       try {
@@ -105,9 +131,12 @@ export async function readTemperatures(root: string): Promise<Temperature[]> {
         if (!Number.isFinite(celsius) || celsius < -30 || celsius > 150) continue;
         const fallback = file.replace('_input', '');
         const label = await readFile(join(path, file.replace('_input', '_label')), 'utf8')
-          .then((value) => value.trim().slice(0, 64)).catch(() => fallback);
+          .then((value) => value.trim().slice(0, 64))
+          .catch(() => fallback);
         result.push({ label, celsius });
-      } catch { /* One unavailable sensor must not hide the other sensors. */ }
+      } catch {
+        /* One unavailable sensor must not hide the other sensors. */
+      }
     }
   }
   return result.slice(0, 12);
@@ -116,7 +145,12 @@ export async function readTemperatures(root: string): Promise<Temperature[]> {
 export async function collectSnapshot(procPath: string, sensorPath: string): Promise<Snapshot> {
   const unavailable: string[] = [];
   async function read<T>(name: string, operation: () => Promise<T>): Promise<T | null> {
-    try { return await operation(); } catch { unavailable.push(name); return null; }
+    try {
+      return await operation();
+    } catch {
+      unavailable.push(name);
+      return null;
+    }
   }
   const memoryText = readFile(join(procPath, 'meminfo'), 'utf8');
   const [cpu, memory, swap, hostUptime, load, temperatures] = await Promise.all([
@@ -139,8 +173,15 @@ export async function collectSnapshot(procPath: string, sensorPath: string): Pro
     }),
   ]);
   return {
-    capturedAt: new Date(), hostUptime, botUptime: process.uptime(),
-    cpuPercent: cpu?.percent ?? null, cores: cpu?.cores ?? null, memory, swap, load,
-    temperatures: temperatures ?? [], unavailable,
+    capturedAt: new Date(),
+    hostUptime,
+    botUptime: process.uptime(),
+    cpuPercent: cpu?.percent ?? null,
+    cores: cpu?.cores ?? null,
+    memory,
+    swap,
+    load,
+    temperatures: temperatures ?? [],
+    unavailable,
   };
 }
