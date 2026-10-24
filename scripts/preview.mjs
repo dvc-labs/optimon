@@ -6,6 +6,8 @@ const { values } = parseArgs({
   options: { port: { type: 'string' }, host: { type: 'string' }, strictPort: { type: 'boolean' } },
 });
 const port = Number(process.env.PORT || values.port || '3000');
+// Loopback by default; pass --host 0.0.0.0 to reach it from a VM, container or phone.
+const host = values.host || '127.0.0.1';
 import { join } from 'node:path';
 import { createDashboard } from '../dist/dashboard-server.js';
 import { loadDashboardConfig } from '../dist/dashboard-config.js';
@@ -102,8 +104,10 @@ server.on('request', (request, response) => {
     });
   application(request, response);
 });
-server.listen(port, '0.0.0.0', () =>
-  console.log(`Local: http://localhost:${port} (sample data only)`),
+server.listen(port, host, () =>
+  console.log(
+    `Local: http://${host === '0.0.0.0' ? 'localhost' : host}:${port} (sample data only)`,
+  ),
 );
 const timer = setInterval(() => {
   update().catch(console.error);

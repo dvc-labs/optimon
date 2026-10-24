@@ -101,6 +101,9 @@ services:
     environment:
       DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the HTTPS dashboard URL in Coolify}
       DASHBOARD_PORT: "3443"
+      # The published port is bound to host loopback above; the process itself must listen on
+      # the container's own interface for Docker to reach it. Outside Compose it defaults to loopback.
+      DASHBOARD_BIND: 0.0.0.0
       DASHBOARD_TLS_CERT: /app/tls/origin.pem
       DASHBOARD_TLS_KEY: /app/tls/origin.key
       DASHBOARD_TLS_CA: /app/tls/origin-ca.pem

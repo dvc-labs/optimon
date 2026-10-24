@@ -29,6 +29,11 @@ readings older than three minutes are marked stale. Past versions did not retain
 swap, load or individual core history, so those remain live-only. Stale data is
 not proof of a host outage: a bot, Discord, connection or export failure can cause it.
 
+Web assets use content-hashed URLs and `ETag`s, so browsers and Cloudflare cache them and
+a burst of visitors does not reach your home connection for every file. The page polls
+`/api/live` (about 1 KB) every 30 seconds and fetches `/api/history` (about 45 KB) only when a
+newer export exists. `/api/metrics` still returns both in a single response.
+
 The app adds no cookies, analytics, accounts or local storage. Cloudflare still
 processes connection data to deliver the site. Search indexing is discouraged;
 this is not access control. The dashboard and its metric API are public, read-only.
@@ -104,7 +109,8 @@ Certificate**:
 
 1. Choose **Use my private key and CSR** and paste the CSR from step 2.
 2. Protect only `dashboard.davevancauwenberghe.be`; remove unnecessary wildcard/apex names.
-3. Choose a validity period (for example **one year**) and create the certificate.
+3. Choose a long validity period (Cloudflare offers up to **15 years**; nothing renews
+   the certificate or warns you before it expires) and create the certificate.
 4. Copy the **PEM Origin Certificate** into the file below. It is a certificate,
    not your private key:
 
@@ -136,7 +142,8 @@ sudo openssl x509 -in /etc/optiplex-dashboard/tls/origin.pem -noout -dates -subj
 ```
 
 The verification must say `OK`. Record the expiry date; Origin CA certificates do
-not renew automatically or receive Cloudflare expiry notifications. Before expiry,
+not renew automatically or receive Cloudflare expiry notifications. The dashboard logs `tls_certificate_expires`
+with the date, plus a warning inside the last 30 days, every time it starts. Before expiry,
 issue a replacement certificate, update these files, then restart the dashboard.
 
 ## 4. Upgrade the existing Coolify resource
@@ -148,10 +155,10 @@ After steps 2–3 and merging the release:
    secrets, public IDs, admin ID and retention settings. Reload the Compose definition.
 3. Add these **runtime** variables. Do not mark them build-time:
 
-| Variable | Value |
-| --- | --- |
-| `DASHBOARD_PUBLIC_URL` | `https://dashboard.davevancauwenberghe.be` |
-| `DASHBOARD_TLS_HOST_PATH` | `/etc/optiplex-dashboard/tls` |
+| Variable                  | Value                                      |
+| ------------------------- | ------------------------------------------ |
+| `DASHBOARD_PUBLIC_URL`    | `https://dashboard.davevancauwenberghe.be` |
+| `DASHBOARD_TLS_HOST_PATH` | `/etc/optiplex-dashboard/tls`              |
 
 4. Keep **Domains empty for both services**. Do not request a Let's Encrypt
    certificate or route through Coolify's public Traefik proxy. Do not enable
@@ -284,17 +291,17 @@ The usual unprivileged ICMP warning can be ignored for this HTTP(S)-only tunnel.
 
 In your tunnel, add a **Published application / Public hostname** route:
 
-| Setting | Value |
-| --- | --- |
-| Subdomain | `dashboard` |
-| Domain | `davevancauwenberghe.be` |
-| Path | Leave empty |
-| Service type | `HTTPS` |
-| Service URL | `127.0.0.1:3443` |
-| Origin Server Name (TLS settings) | `dashboard.davevancauwenberghe.be` |
-| CA Pool (TLS settings) | `/etc/optiplex-dashboard/connector/origin-ca.pem` |
-| Disable TLS certificate verification / No TLS Verify | **Off** |
-| HTTP/2 to origin | **Off** (Node serves HTTPS with HTTP/1.1) |
+| Setting                                              | Value                                             |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| Subdomain                                            | `dashboard`                                       |
+| Domain                                               | `davevancauwenberghe.be`                          |
+| Path                                                 | Leave empty                                       |
+| Service type                                         | `HTTPS`                                           |
+| Service URL                                          | `127.0.0.1:3443`                                  |
+| Origin Server Name (TLS settings)                    | `dashboard.davevancauwenberghe.be`                |
+| CA Pool (TLS settings)                               | `/etc/optiplex-dashboard/connector/origin-ca.pem` |
+| Disable TLS certificate verification / No TLS Verify | **Off**                                           |
+| HTTP/2 to origin                                     | **Off** (Node serves HTTPS with HTTP/1.1)         |
 
 If there is one Service URL field instead of separate type/address controls, use
 `https://127.0.0.1:3443`. The CA Pool path is on the **connector host**, not the
@@ -305,8 +312,8 @@ container path `/app/tls`. Save the route. No wildcard/private-network route is 
 A published route normally creates the DNS record automatically. In the zone's
 **DNS → Records**, check:
 
-| Type | Name | Target | Proxy |
-| --- | --- | --- | --- |
+| Type  | Name        | Target                                | Proxy                  |
+| ----- | ----------- | ------------------------------------- | ---------------------- |
 | CNAME | `dashboard` | `<YOUR_TUNNEL_UUID>.cfargotunnel.com` | Proxied (orange cloud) |
 
 Use the tunnel's actual UUID from its details page. If the record was not created,
@@ -360,16 +367,16 @@ so an older preview may take time to refresh. No new Discord permissions/intents
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| Dashboard build/start fails | Origin files exist before deployment; GID 1000 can read the directory/key/cert; `DASHBOARD_PUBLIC_URL` is set; resource builds the `dashboard` target. |
-| HTTPS origin check fails | PEM certificate matches private key, correct hostname, valid dates, both public roots installed. Do not bypass verification. |
-| Tunnel Healthy but public 502 | Run the local curl test first; host connector uses `https://127.0.0.1:3443`, correct SNI and host CA Pool path. |
-| Tunnel unavailable/1033 | Service token and connector logs; outbound TCP/UDP 7844 permitted. No inbound router rule is needed. |
-| API 503 / waiting for data | Bot connected to Discord, `dashboard_export_failed` log absent, both services mount the same new `public-metrics` volume, private archive stays on its old volume. |
-| Live readings fresh, history stale | Check `dashboard_export_failed`; history query retries after five minutes and keeps the prior export. |
-| Site works but no social preview | Edge protection permits crawlers; PNG reachable over public HTTPS; title/image metadata present without JavaScript; Discord cache. |
-| Certificate renewal not visible | Restart the dashboard after replacing PEM/key; it loads them at startup. |
+| Symptom                            | Check                                                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dashboard build/start fails        | Origin files exist before deployment; GID 1000 can read the directory/key/cert; `DASHBOARD_PUBLIC_URL` is set; resource builds the `dashboard` target.             |
+| HTTPS origin check fails           | PEM certificate matches private key, correct hostname, valid dates, both public roots installed. Do not bypass verification.                                       |
+| Tunnel Healthy but public 502      | Run the local curl test first; host connector uses `https://127.0.0.1:3443`, correct SNI and host CA Pool path.                                                    |
+| Tunnel unavailable/1033            | Service token and connector logs; outbound TCP/UDP 7844 permitted. No inbound router rule is needed.                                                               |
+| API 503 / waiting for data         | Bot connected to Discord, `dashboard_export_failed` log absent, both services mount the same new `public-metrics` volume, private archive stays on its old volume. |
+| Live readings fresh, history stale | Check `dashboard_export_failed`; history query retries after five minutes and keeps the prior export.                                                              |
+| Site works but no social preview   | Edge protection permits crawlers; PNG reachable over public HTTPS; title/image metadata present without JavaScript; Discord cache.                                 |
+| Certificate renewal not visible    | Restart the dashboard after replacing PEM/key; it loads them at startup.                                                                                           |
 
 ## Local development and visual QA
 
@@ -378,7 +385,10 @@ preview on port 3000. Open `/__preview?width=390` for a phone-width frame,
 or use its 320/768-pixel controls for responsive QA. It does not log in to Discord, read the real archive, send
 notifications or need tokens. Never run the preview command in production.
 `npm run dashboard` starts the real server; without the TLS variables it uses HTTP
-for local development. Compose always supplies all TLS paths and fails if invalid.
+for local development. It listens on `127.0.0.1` unless `DASHBOARD_BIND` names another
+address; Compose sets `0.0.0.0` inside the container, where the published port is already
+restricted to host loopback. `npm run dev -- --host 0.0.0.0` makes the sample preview
+reachable from a phone on your network. Compose always supplies all TLS paths and fails if invalid.
 The dashboard image intentionally contains neither the preview script nor Discord dependencies.
 
 ## Primary references

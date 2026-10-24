@@ -378,3 +378,79 @@ test('HTTPS and the healthcheck verify the origin certificate hostname and trust
   const [code] = await once(child, 'exit');
   assert.equal(code, 0);
 });
+test('the live endpoint stays small and history is fetched separately with a validator', async (t) => {
+  const f = await fixture(t);
+  const { url } = await serve(t, f);
+  assert.equal((await fetch(`${url}/api/live`)).status, 503);
+  assert.equal((await fetch(`${url}/api/history`)).status, 503);
+  f.store.recordMetrics([{ at: f.now(), cpu: 10, memory: 20, temperature: 30 }]);
+  await f.publisher.publish(f.sample());
+  f.advance(5001);
+  const live = await fetch(`${url}/api/live`);
+  assert.equal(live.status, 200);
+  assert.equal(live.headers.get('cache-control'), 'no-store');
+  const body = await live.json();
+  assert.equal(body.status.state, 'live');
+  assert.equal(body.data.history, undefined);
+  assert.equal(body.data.live.cpuPercent, 5);
+  assert.equal(typeof body.data.historyGeneratedAt, 'number');
+  assert.ok(JSON.stringify(body).length < 2048, 'live polls must not carry the history');
+  const history = await fetch(`${url}/api/history`);
+  assert.equal(history.status, 200);
+  assert.equal(history.headers.get('cache-control'), 'no-cache');
+  const etag = history.headers.get('etag');
+  assert.match(etag, /^"[\w-]+"$/);
+  const parsed = await history.json();
+  assert.equal(parsed.generatedAt, body.data.historyGeneratedAt);
+  assert.equal(parsed.windows.length, 7);
+  const unchanged = await fetch(`${url}/api/history`, { headers: { 'if-none-match': etag } });
+  assert.equal(unchanged.status, 304);
+  assert.equal(await unchanged.text(), '');
+  assert.equal(unchanged.headers.get('etag'), etag);
+  assert.equal(
+    (await fetch(`${url}/api/history`, { headers: { 'if-none-match': '"x"' } })).status,
+    200,
+  );
+  const full = await (await fetch(`${url}/api/metrics`)).json();
+  assert.equal(full.data.history.generatedAt, parsed.generatedAt);
+});
+test('assets are cached by content hash and revalidate cheaply, while data is never cached', async (t) => {
+  const f = await fixture(t);
+  const { url } = await serve(t, f);
+  const page = await fetch(url);
+  const html = await page.text();
+  assert.equal(page.headers.get('cache-control'), 'no-cache');
+  const version = /\/assets\/dashboard\.css\?v=([\w-]+)/.exec(html)?.[1];
+  assert.ok(version, 'the stylesheet URL carries a content hash');
+  assert.ok(html.includes(`/assets/dashboard.js?v=${version}`));
+  assert.ok(!html.includes('__ASSET_VERSION__'));
+  const script = await fetch(`${url}/assets/dashboard.js?v=${version}`);
+  assert.ok(!(await script.text()).includes('__ASSET_VERSION__'));
+  const css = await fetch(`${url}/assets/dashboard.css?v=${version}`);
+  assert.equal(css.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.equal(
+    (await fetch(`${url}/assets/dashboard.css?v=an-older-build`)).headers.get('cache-control'),
+    'public, max-age=300',
+  );
+  assert.equal(
+    (await fetch(`${url}/assets/preview.png`)).headers.get('cache-control'),
+    'public, max-age=3600',
+  );
+  const revalidated = await fetch(`${url}/assets/dashboard.css`, {
+    headers: { 'if-none-match': css.headers.get('etag') },
+  });
+  assert.equal(revalidated.status, 304);
+  assert.equal(
+    (await fetch(url, { headers: { 'if-none-match': page.headers.get('etag') } })).status,
+    304,
+  );
+  for (const path of ['/healthz', '/api/live', '/api/metrics'])
+    assert.equal((await fetch(url + path)).headers.get('cache-control'), 'no-store', path);
+});
+test('the dashboard listens on loopback unless an address is chosen explicitly', () => {
+  assert.equal(loadDashboardConfig({}).host, '127.0.0.1');
+  assert.equal(loadDashboardConfig({ DASHBOARD_BIND: '0.0.0.0' }).host, '0.0.0.0');
+  assert.equal(loadDashboardConfig({ DASHBOARD_BIND: '::1' }).host, '::1');
+  assert.throws(() => loadDashboardConfig({ DASHBOARD_BIND: 'localhost' }), /DASHBOARD_BIND/);
+  assert.throws(() => loadDashboardConfig({ DASHBOARD_BIND: '0.0.0.0/0' }), /DASHBOARD_BIND/);
+});

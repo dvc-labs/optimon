@@ -478,3 +478,37 @@ test('public exporting receives host readings, and export failure does not stop 
   await f.runtime.sample();
   assert.equal(published.length, 2);
 });
+
+test('a slow public export never delays the heartbeat or the Discord activity', async (t) => {
+  let pings = 0;
+  const heartbeat = new ExternalHeartbeat('https://example.invalid/fixture', async () => {
+    pings++;
+    return new Response(null, { status: 200 });
+  });
+  const entered = deferred();
+  const release = deferred();
+  const f = await fixture(t, {
+    config: { HEARTBEAT_URL: 'https://example.invalid/fixture' },
+    options: {
+      heartbeat,
+      publisher: {
+        publish: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    },
+  });
+  const started = f.runtime.start();
+  try {
+    await entered.promise;
+    for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(pings, 1, 'the heartbeat must not wait for the archive query behind the export');
+    assert.ok(f.events.includes('activity'));
+  } finally {
+    // Always unblock the export so a failing assertion cannot hang the runtime teardown.
+    release.resolve();
+  }
+  await started;
+  assert.equal(f.sent.length, 1, 'startup still completes once the export finishes');
+});

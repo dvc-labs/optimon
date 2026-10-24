@@ -164,14 +164,9 @@ export class MonitorRuntime {
     } catch (error) {
       this.logger('metric_archive_write_failed', safeError(error));
     }
-    if (this.options.publisher) {
-      try {
-        await this.options.publisher.publish(snapshot);
-      } catch (error) {
-        this.logger('dashboard_export_failed', safeError(error));
-      }
-      if (this.stopping) return;
-    }
+    // Start the public export now so the page stays fresh, but never make thermal alerts or the
+    // external heartbeat wait for a slow archive query. It is awaited (and cannot reject) below.
+    const exported = this.exportPublic(snapshot);
     if (this.now() >= this.nextAuditCleanup) {
       try {
         const removed = this.options.telemetry.pruneCommands(
@@ -219,6 +214,16 @@ export class MonitorRuntime {
       } catch (error) {
         this.logger('external_heartbeat_failed', safeError(error));
       }
+    }
+    await exported;
+  }
+
+  private async exportPublic(snapshot: Snapshot): Promise<void> {
+    if (!this.options.publisher) return;
+    try {
+      await this.options.publisher.publish(snapshot);
+    } catch (error) {
+      this.logger('dashboard_export_failed', safeError(error));
     }
   }
 
