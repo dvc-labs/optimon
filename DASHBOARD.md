@@ -25,7 +25,10 @@ cached exports, never trigger SQLite queries or take a new sensor reading.
 The bot updates live readings about every minute. History is exported every five
 minutes by the read-only query worker with its existing 10-second deadline. The
 browser polls every 30 seconds while visible. Empty chart periods remain gaps;
-readings older than three minutes are marked stale. Past versions did not retain
+readings older than three minutes are marked stale. Staleness is judged on the server's
+clock (`ageSeconds`), so a visitor with a wrong clock cannot make fresh readings look old.
+A period longer than the recorded history is not offered, so a ten-day-old archive shows 1h
+to 7d and "All", not a year that is 97% empty. Past versions did not retain
 swap, load or individual core history, so those remain live-only. Stale data is
 not proof of a host outage: a bot, Discord, connection or export failure can cause it.
 
@@ -33,6 +36,16 @@ Web assets use content-hashed URLs and `ETag`s, so browsers and Cloudflare cache
 a burst of visitors does not reach your home connection for every file. The page polls
 `/api/live` (about 1 KB) every 30 seconds and fetches `/api/history` (about 45 KB) only when a
 newer export exists. `/api/metrics` still returns both in a single response.
+
+The page is plain HTML, one stylesheet and two scripts, with no build step. The font
+(IBM Plex Sans, SIL Open Font License; the licence sits next to the files) is served from
+`web/fonts/`, never from a CDN. Every asset the page references carries `?v=<hash>`,
+including the font URLs inside the stylesheet, so a changed file is never served from an old
+cache. `web/chart-model.js` holds the chart arithmetic (scales, ticks, gaps, freshness) with no
+DOM access, and `test/chart-model.test.mjs` runs exactly that file. The server serves only the
+files listed in its asset map in `src/dashboard-server.ts`: a new file under `web/` must be
+added there, and a test fails if it is not. The social card is `web/preview.png`; its source
+is `scripts/og-card.html`, which says how to regenerate it.
 
 The app adds no cookies, analytics, accounts or local storage. Cloudflare still
 processes connection data to deliver the site. Search indexing is discouraged;
@@ -384,6 +397,10 @@ Run `npm run build && npm run dev` for a clearly labelled **sample-data-only** l
 preview on port 3000. Open `/__preview?width=390` for a phone-width frame,
 or use its 320/768-pixel controls for responsive QA. It does not log in to Discord, read the real archive, send
 notifications or need tokens. Never run the preview command in production.
+The sample archive is ten days of generated readings with two outages, passed through the
+real history query, so the charts see exactly what production would send.
+`--scenario young` (forty minutes of history), `--scenario stale` (last reading 25 minutes
+old) and `--scenario hot` (above the warning level) reproduce the other states.
 `npm run dashboard` starts the real server; without the TLS variables it uses HTTP
 for local development. It listens on `127.0.0.1` unless `DASHBOARD_BIND` names another
 address; Compose sets `0.0.0.0` inside the container, where the published port is already

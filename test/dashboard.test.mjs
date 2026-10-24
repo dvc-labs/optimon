@@ -454,3 +454,59 @@ test('the dashboard listens on loopback unless an address is chosen explicitly',
   assert.throws(() => loadDashboardConfig({ DASHBOARD_BIND: 'localhost' }), /DASHBOARD_BIND/);
   assert.throws(() => loadDashboardConfig({ DASHBOARD_BIND: '0.0.0.0/0' }), /DASHBOARD_BIND/);
 });
+test('everything the page, stylesheet and script point at is served, and nothing in web/ is left out', async (t) => {
+  const f = await fixture(t);
+  const { url } = await serve(t, f);
+  const here = (path) => new URL(path, `${url}/`);
+  const fetched = async (address) => {
+    const response = await fetch(address);
+    assert.equal(response.status, 200, `${address} should be served`);
+    const body = Buffer.from(await response.arrayBuffer());
+    assert.ok(body.length > 0, `${address} should not be empty`);
+    return { response, body };
+  };
+  const { body: page } = await fetched(url);
+  const html = page.toString();
+  // Links in the page, including the absolute social image URL, which points back at this server.
+  const references = [...html.matchAll(/\b(?:href|src|content)="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter(
+      (value) =>
+        value.startsWith('/assets/') ||
+        value === '/favicon.svg' ||
+        value.startsWith('https://dashboard.davevancauwenberghe.be/assets/'),
+    )
+    .map((value) => value.replace('https://dashboard.davevancauwenberghe.be', ''));
+  assert.ok(references.length >= 5, 'the page references its stylesheet, script, fonts and images');
+  for (const reference of references) await fetched(here(reference));
+  // Fonts named in the stylesheet are resolved against the stylesheet, as a browser would.
+  const stylesheet = references.find((value) => value.startsWith('/assets/dashboard.css'));
+  const { body: css } = await fetched(here(stylesheet));
+  const fonts = [...css.toString().matchAll(/url\('([^']+)'\)/g)].map((match) => match[1]);
+  assert.ok(fonts.length >= 2);
+  for (const font of fonts) {
+    const { response } = await fetched(new URL(font, here(stylesheet)));
+    assert.equal(response.headers.get('content-type'), 'font/woff2');
+  }
+  assert.ok(!css.toString().includes('__ASSET_VERSION__'));
+  // Modules the script imports, resolved against the script.
+  const script = references.find((value) => value.startsWith('/assets/dashboard.js'));
+  const { body: code } = await fetched(here(script));
+  const imports = [...code.toString().matchAll(/from '(\.[^']+)'/g)].map((match) => match[1]);
+  assert.ok(imports.length >= 1);
+  for (const module of imports) {
+    const { response } = await fetched(new URL(module, here(script)));
+    assert.match(response.headers.get('content-type'), /javascript/);
+  }
+  // Every file under web/ has a route: adding one without registering it fails here.
+  const root = resolve('web');
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const name = join(entry.parentPath, entry.name).slice(root.length + 1);
+    const route =
+      name === 'index.html' ? '/' : name === 'favicon.svg' ? '/favicon.svg' : `/assets/${name}`;
+    const { body } = await fetched(here(route));
+    if (/\.(png|woff2|txt)$/.test(name))
+      assert.deepEqual(body, await readFile(join(root, name)), `${route} matches web/${name}`);
+  }
+});

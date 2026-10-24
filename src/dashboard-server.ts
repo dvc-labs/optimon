@@ -18,14 +18,23 @@ const CSP =
 /**
  * page: the HTML, always revalidated (a cheap 304) so a deploy shows up at once.
  * versioned: referenced as ?v=<content hash>, so it can be cached forever under that URL.
- * immutable: the file name itself changes if the content ever does (fonts).
  * static: rarely changes and is fetched without a version (social preview, icon).
  */
-type Policy = 'page' | 'versioned' | 'immutable' | 'static';
+type Policy = 'page' | 'versioned' | 'static';
 const assets = new Map<string, readonly [file: string, type: string, policy: Policy]>([
   ['/', ['index.html', 'text/html; charset=utf-8', 'page']],
   ['/assets/dashboard.css', ['dashboard.css', 'text/css; charset=utf-8', 'versioned']],
   ['/assets/dashboard.js', ['dashboard.js', 'text/javascript; charset=utf-8', 'versioned']],
+  ['/assets/chart-model.js', ['chart-model.js', 'text/javascript; charset=utf-8', 'versioned']],
+  [
+    '/assets/fonts/ibm-plex-sans-latin-400-normal.woff2',
+    ['fonts/ibm-plex-sans-latin-400-normal.woff2', 'font/woff2', 'versioned'],
+  ],
+  [
+    '/assets/fonts/ibm-plex-sans-latin-600-normal.woff2',
+    ['fonts/ibm-plex-sans-latin-600-normal.woff2', 'font/woff2', 'versioned'],
+  ],
+  ['/assets/fonts/OFL.txt', ['fonts/OFL.txt', 'text/plain; charset=utf-8', 'static']],
   ['/assets/preview.png', ['preview.png', 'image/png', 'static']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml', 'static']],
 ]);
@@ -65,7 +74,7 @@ export async function createDashboard(config: DashboardConfig, now: () => number
   >();
   for (const [route, { body: original, type, policy }] of raw) {
     let body = original;
-    if (type.startsWith('text/html') || type.startsWith('text/javascript')) {
+    if (/^text\/(html|css|javascript)/.test(type)) {
       let text = body.toString('utf8').replaceAll('__ASSET_VERSION__', assetVersion);
       if (route === '/')
         text = text.replaceAll('__PUBLIC_URL__', escapeAttribute(config.publicUrl));
@@ -223,8 +232,7 @@ export async function createDashboard(config: DashboardConfig, now: () => number
       const cache =
         asset.policy === 'page'
           ? 'no-cache'
-          : asset.policy === 'immutable' ||
-              (asset.policy === 'versioned' && requestedVersion === assetVersion)
+          : asset.policy === 'versioned' && requestedVersion === assetVersion
             ? 'public, max-age=31536000, immutable'
             : asset.policy === 'static'
               ? 'public, max-age=3600'

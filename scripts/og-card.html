@@ -1,0 +1,75 @@
+<!doctype html>
+<!--
+  Source of web/preview.png, the 1200x630 social card. It uses the same font and colours as
+  the dashboard. To regenerate it, with Playwright available:
+
+    npx playwright screenshot --viewport-size=1200,630 "file://$PWD/scripts/og-card.html" web/preview.png
+
+  Keep the og:image:alt text in web/index.html in step with the words on this card.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>optiplex social card</title>
+    <style>
+      @font-face {
+        font-family: 'IBM Plex Sans';
+        font-weight: 400;
+        src: url('../web/fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'IBM Plex Sans';
+        font-weight: 600;
+        src: url('../web/fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: #e8eae5;
+        color: #151719;
+        font-family: 'IBM Plex Sans', sans-serif;
+      }
+      .card {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        width: 1200px;
+        height: 630px;
+        padding: 64px 72px 72px;
+      }
+      .mark {
+        font-size: 44px;
+        font-weight: 600;
+        letter-spacing: -0.04em;
+      }
+      .mark span {
+        color: #00707a;
+      }
+      h1 {
+        margin: 0 0 0 -12px;
+        font-size: 284px;
+        font-weight: 600;
+        line-height: 0.95;
+        letter-spacing: -0.045em;
+      }
+      p {
+        margin: 44px 0 0;
+        font-size: 44px;
+        color: #555a56;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="mark">dvc<span>.</span></div>
+      <div>
+        <h1>optiplex</h1>
+        <p>A Dell OptiPlex home server, live.</p>
+      </div>
+    </div>
+  </body>
+</html>

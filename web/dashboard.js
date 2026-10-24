@@ -1,430 +1,765 @@
+import {
+  HOUR,
+  SAMPLE_MS,
+  WINDOWS,
+  availableWindows,
+  coverageSentence,
+  defaultWindow,
+  describeAge,
+  formatSpan,
+  freshness,
+  nearestIndex,
+  runsAndGaps,
+  summarySentence,
+  timeTicks,
+  valueScale,
+} from './chart-model.js?v=__ASSET_VERSION__';
+
+const POLL_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 8_000;
+const NBSP = ' ';
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
 const $ = (id) => document.getElementById(id);
-const svgNS = 'http://www.w3.org/2000/svg';
-const names = { cpu: 'CPU', memory: 'Memory', temperature: 'Temperature' };
-const number = new Intl.NumberFormat(undefined, {
-  maximumFractionDigits: 1,
+const one = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
 });
-const integer = new Intl.NumberFormat();
-const dateTime = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
+const loose = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+const whole = new Intl.NumberFormat();
+const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
+const dayMonth = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+const monthOnly = new Intl.DateTimeFormat(undefined, { month: 'short' });
+const monthYear = new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' });
+const dateOnly = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+const stamp = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
   day: 'numeric',
+  month: 'short',
   hour: '2-digit',
   minute: '2-digit',
 });
-const timeOnly = new Intl.DateTimeFormat(undefined, {
+const shortStamp = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
   hour: '2-digit',
   minute: '2-digit',
-  second: '2-digit',
 });
-let latest = null;
-let selectedWindow = '24h';
-let selectedMetric = 'cpu';
-let hovered = -1;
-let chartWindow = null;
-let chartScale = null;
-let timer = null;
-let pending = false;
-let controller = null;
-let lastResponseAt = 0;
-let demo = false;
-const text = (id, value) => {
+
+const METRICS = {
+  cpu: {
+    name: 'CPU',
+    format: (v) => `${one.format(v)}%`,
+    tick: (v) => `${v}%`,
+  },
+  memory: {
+    name: 'Memory',
+    format: (v) => `${one.format(v)}%`,
+    tick: (v) => `${v}%`,
+  },
+  temperature: {
+    name: 'Temperature',
+    format: (v) => `${loose.format(v)}${NBSP}°C`,
+    tick: (v) => `${v}${NBSP}°C`,
+  },
+};
+
+const gib = (bytes) => bytes / 1024 ** 3;
+const setText = (id, value) => {
   $(id).textContent = value;
 };
-const decimal = (value) => (value === null || value === undefined ? '—' : number.format(value));
-const unit = () => (selectedMetric === 'temperature' ? ' °C' : '%');
-const gib = (value) => (value / 1024 ** 3).toFixed(2);
-function duration(seconds) {
-  if (seconds === null) return '—';
-  const minutes = Math.floor(seconds / 60);
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  return days ? `${days}d ${hours}h` : `${hours}h ${minutes % 60}m`;
+
+/** Show a reading, or an en dash (with its unit hidden) when the machine did not report one. */
+function setValue(id, value) {
+  const empty = value === null || value === undefined;
+  setText(id, empty ? '–' : value);
+  $(id).parentElement.toggleAttribute('data-empty', empty);
 }
-function node(tag, attributes = {}, content) {
-  const element = document.createElementNS(svgNS, tag);
-  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
-  if (content !== undefined) element.textContent = content;
-  return element;
+
+// ---------------------------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------------------------
+
+let live = null; // { data, status, receivedAt, preview }
+let history = null;
+let failures = 0;
+let windowKey = null;
+let metric = 'cpu';
+let selectedAt = null; // survives a history refresh, so the tooltip does not jump
+let view = null; // geometry of the chart as last drawn
+let lastState = null;
+let requestId = 0;
+let inflight = null;
+let generation = 0;
+let pollTimer = 0;
+
+// ---------------------------------------------------------------------------------------------
+// Status
+// ---------------------------------------------------------------------------------------------
+
+function hottestReading(data) {
+  let best = null;
+  for (const reading of data.live.temperatures)
+    if (!best || reading.celsius > best.celsius) best = reading;
+  return best;
 }
-function state(kind, message) {
-  $('status-badge').dataset.state = kind;
-  text('status-text', message);
+
+function sensorName(label) {
+  return label.replace(/^Package id 0$/, 'CPU package').replace(/^Package id /, 'CPU package ');
 }
-function notice(message, isDemo = false) {
-  $('notice').hidden = !message;
-  $('notice').dataset.demo = String(isDemo);
-  text('notice', message);
+
+function describeMachine(data, age) {
+  const reading = hottestReading(data);
+  const { live: now } = data;
+  const read = `Read ${describeAge(age)}.`;
+  const uptime =
+    now.hostUptime === null
+      ? ''
+      : ` Up for ${formatSpan(now.hostUptime * 1000)} without a restart.`;
+  if (reading && reading.celsius >= data.thermalWarnC)
+    return {
+      verdict: 'Running hot.',
+      detail: `${sensorName(reading.label)} is at ${loose.format(reading.celsius)}${NBSP}°C, above the ${data.thermalWarnC}${NBSP}°C warning level. ${read}`,
+    };
+  if (now.memory && now.memory.percent >= 90)
+    return {
+      verdict: 'Short on memory.',
+      detail: `${loose.format(now.memory.percent)}% of memory is in use. ${read}`,
+    };
+  if (now.cpuPercent !== null && now.cpuPercent >= 80)
+    return {
+      verdict: 'Working hard.',
+      detail: `The CPU is at ${loose.format(now.cpuPercent)}%. ${read}`,
+    };
+  if (reading && reading.celsius > data.thermalRecoverC)
+    return {
+      verdict: 'Warm, but within limits.',
+      detail: `The hottest sensor is at ${loose.format(reading.celsius)}${NBSP}°C; the warning level is ${data.thermalWarnC}${NBSP}°C. ${read}`,
+    };
+  return { verdict: 'All quiet.', detail: `${read}${uptime}` };
 }
+
+function setState(state, message) {
+  document.body.dataset.state = state;
+  // Only a change between fresh and out-of-date is worth interrupting a screen reader for.
+  const flipped = (lastState === 'live' || lastState === 'stale') && state !== lastState;
+  if (flipped && (state === 'live' || state === 'stale') && message) setText('announce', message);
+  lastState = state;
+}
+
+function setNotice(message, demo = false) {
+  const element = $('notice');
+  element.hidden = !message;
+  element.dataset.demo = String(demo);
+  element.textContent = message ?? '';
+}
+
 function renderStatus() {
-  if (!latest) {
-    state('unavailable', 'Readings unavailable');
+  if (!live) {
+    setState('unavailable');
+    setText('verdict', failures ? 'No readings yet.' : 'optiplex');
+    setText(
+      'detail',
+      failures
+        ? "The monitor hasn't published anything this page can read, or the connection is down. It will keep trying."
+        : 'Loading the latest reading.',
+    );
+    setNotice(null);
     return;
   }
-  const age = Date.now() - latest.live.capturedAt;
-  if (age < -5000 || age > 180_000 || Date.now() - lastResponseAt > 90_000) {
-    state('stale', 'Readings are stale');
-    notice(
-      'These are the last recorded readings. The monitor or connection may be offline; this page cannot determine the cause.',
+  const f = freshness(live.status, live.receivedAt, performance.now());
+  if (f.state === 'stale') {
+    setState('stale', 'These readings are out of date.');
+    setText('verdict', 'No fresh readings.');
+    setText(
+      'detail',
+      `The last one arrived ${describeAge(f.age)}. The machine, the monitor or the connection may be down; this page can't tell which.`,
     );
   } else {
-    state('live', 'Fresh host readings');
-    notice(
-      demo
-        ? 'LOCAL PREVIEW · Illustrative sample data. This is not connected to the real home lab.'
-        : '',
-      demo,
+    setState('live', 'Readings are current again.');
+    const { verdict, detail } = describeMachine(live.data, f.age);
+    setText('verdict', verdict);
+    setText('detail', detail);
+  }
+  if (failures >= 2 || !f.connected)
+    setNotice(
+      "The latest update couldn't be loaded. These are the last readings received; the page keeps trying.",
     );
-  }
-  text('last-updated', timeOnly.format(new Date(latest.live.capturedAt)));
-  $('last-updated').dateTime = new Date(latest.live.capturedAt).toISOString();
+  else if (live.preview)
+    setNotice('Local preview with made-up sample data. This is not the real machine.', true);
+  else setNotice(null);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Current readings
+// ---------------------------------------------------------------------------------------------
+
 function renderLive() {
-  const live = latest.live;
-  text('cpu-value', decimal(live.cpuPercent));
-  text('cpu-cores', live.cores ?? '—');
-  $('cpu-bar').value = live.cpuPercent ?? 0;
-  $('memory-bar').value = live.memory?.percent ?? 0;
-  text('memory-value', live.memory ? gib(live.memory.used) : '—');
-  text('memory-percent', live.memory ? `${decimal(live.memory.percent)}%` : '—');
-  text('memory-total', live.memory ? `${gib(live.memory.total)} GiB total` : 'Unavailable');
-  text('memory-available', live.memory ? `${gib(live.memory.available)} GiB` : 'Unavailable');
-  text(
-    'swap-usage',
-    live.swap ? `${gib(live.swap.used)} / ${gib(live.swap.total)} GiB` : 'Unavailable',
+  const { data } = live;
+  const now = data.live;
+  const reading = hottestReading(data);
+
+  setValue('cpu-value', now.cpuPercent === null ? null : one.format(now.cpuPercent));
+  $('cpu-bar').value = now.cpuPercent ?? 0;
+  setText('cpu-context', now.cores ? `${now.cores} cores` : '');
+
+  const memory = now.memory;
+  setValue('memory-value', memory ? one.format(gib(memory.used)) : null);
+  $('memory-bar').value = memory?.percent ?? 0;
+  setText(
+    'memory-context',
+    memory
+      ? `${loose.format(memory.percent)}% of ${one.format(gib(memory.total))} GiB, ${one.format(gib(memory.available))} GiB available`
+      : 'Not reported.',
   );
-  $('swap-bar').value = live.swap?.percent ?? 0;
-  const hottest = live.temperatures.length
-    ? Math.max(...live.temperatures.map((t) => t.celsius))
-    : null;
-  text('temp-value', decimal(hottest));
-  $('temp-bar').value = hottest ?? 0;
-  const thermal = $('thermal-state');
-  thermal.replaceChildren(
-    document.createTextNode(
-      hottest === null
-        ? 'Unavailable'
-        : hottest >= latest.thermalWarnC
-          ? 'Above warning threshold'
-          : hottest > latest.thermalRecoverC
-            ? 'Warm'
-            : 'Keeping cool',
-    ),
+
+  setValue('temp-value', reading ? loose.format(reading.celsius) : null);
+  $('temp-bar').value = reading ? Math.min(100, (reading.celsius / data.thermalWarnC) * 100) : 0;
+  $('row-temperature').dataset.state =
+    reading && reading.celsius >= data.thermalWarnC ? 'hot' : 'ok';
+  setText(
+    'temp-context',
+    reading
+      ? `${sensorName(reading.label)}. Warning level ${data.thermalWarnC}${NBSP}°C.`
+      : 'No readable sensors.',
   );
-  const threshold = document.createElement('span');
-  threshold.className = 'detail-end';
-  threshold.textContent = `${latest.thermalWarnC} °C warning`;
-  thermal.append(threshold);
-  text('uptime-value', duration(live.hostUptime));
-  text('bot-uptime', duration(live.botUptime));
-  [1, 5, 15].forEach((period, i) =>
-    text(`load-${period}`, live.load ? live.load[i].toFixed(2) : '—'),
+
+  const load = now.load;
+  setValue('load-value', load ? load[0].toFixed(2) : null);
+  setText(
+    'load-context',
+    load
+      ? `Averages over 1, 5 and 15 minutes: ${load.map((v) => v.toFixed(2)).join(', ')}${now.cores ? `, on ${now.cores} cores` : ''}.`
+      : 'Not reported.',
   );
-  const sensors = $('temperature-list');
-  sensors.replaceChildren();
-  for (const reading of live.temperatures) {
-    const item = document.createElement('div');
-    item.className = `sensor${reading.label.startsWith('Package') ? ' sensor-package' : ''}`;
-    item.dataset.hot = String(reading.celsius >= latest.thermalWarnC);
-    const label = document.createElement('span');
-    label.textContent = reading.label.replace('Package id ', 'CPU package ');
-    const value = document.createElement('strong');
-    value.textContent = `${decimal(reading.celsius)} `;
-    const suffix = document.createElement('small');
-    suffix.textContent = '°C';
-    value.append(suffix);
-    item.append(label, value);
-    sensors.append(item);
+
+  const swap = now.swap;
+  setValue('swap-value', swap ? one.format(gib(swap.used)) : null);
+  $('swap-bar').value = swap?.percent ?? 0;
+  setText(
+    'swap-context',
+    !swap
+      ? 'Not reported.'
+      : swap.total === 0
+        ? 'No swap space is set up.'
+        : `${loose.format(swap.percent)}% of ${one.format(gib(swap.total))} GiB`,
+  );
+
+  const rows = [...now.temperatures].sort(
+    (a, b) =>
+      Number(b.label.startsWith('Package')) - Number(a.label.startsWith('Package')) ||
+      a.label.localeCompare(b.label, undefined, { numeric: true }),
+  );
+  const body = $('sensor-rows');
+  body.replaceChildren();
+  for (const sensor of rows) {
+    const row = document.createElement('tr');
+    if (sensor.label.startsWith('Package')) row.dataset.package = '';
+    row.dataset.hot = String(sensor.celsius >= data.thermalWarnC);
+    const label = document.createElement('td');
+    label.textContent = sensorName(sensor.label);
+    const value = document.createElement('td');
+    value.textContent = `${loose.format(sensor.celsius)}${NBSP}°C`;
+    row.append(label, value);
+    body.append(row);
   }
-  if (!live.temperatures.length) {
-    const empty = document.createElement('p');
-    empty.className = 'muted';
-    empty.textContent = 'No readable temperature sensors.';
-    sensors.append(empty);
+  if (!rows.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 2;
+    cell.textContent = 'No readable temperature sensors.';
+    row.append(cell);
+    body.append(row);
   }
-  text('version', `v${latest.version}`);
-  text('archive-total', latest.history ? integer.format(latest.history.totalSamples) : '—');
-  text(
-    'archive-first',
-    latest.history?.firstAt !== null && latest.history?.firstAt !== undefined
-      ? `Since ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(latest.history.firstAt))}`
-      : 'Waiting for the archive.',
+  setText('sensor-note', `Counted as cool again at ${data.thermalRecoverC}${NBSP}°C or below.`);
+
+  const archive = data.history;
+  setText(
+    'version',
+    archive?.firstAt != null
+      ? `optiplex v${data.version}. ${whole.format(archive.totalSamples)} readings since ${dateOnly.format(new Date(archive.firstAt))}.`
+      : `optiplex v${data.version}`,
   );
 }
-function selectPoint(index) {
-  if (!chartWindow || !chartScale) return;
-  hovered = Math.max(0, Math.min(chartWindow.points.length - 1, index));
-  const point = chartWindow.points[hovered];
-  const value = point[selectedMetric];
-  const crosshair = $('chart-crosshair');
-  const x = chartScale.x(hovered);
-  crosshair.setAttribute('x1', x);
-  crosshair.setAttribute('x2', x);
-  crosshair.setAttribute('visibility', 'visible');
-  text(
-    'chart-tooltip',
-    `${dateTime.format(new Date(point.at))} · ${value === null ? 'No reading' : `${decimal(value)}${unit()}`}`,
-  );
-  $('chart-tooltip').hidden = false;
+
+// ---------------------------------------------------------------------------------------------
+// History chart
+// ---------------------------------------------------------------------------------------------
+
+function currentWindow() {
+  return history && windowKey ? (history.windows.find((w) => w.key === windowKey) ?? null) : null;
 }
-function clearHover() {
-  hovered = -1;
-  $('chart-tooltip').hidden = true;
-  $('chart-crosshair')?.setAttribute('visibility', 'hidden');
+
+function svg(tag, attributes = {}, text) {
+  const element = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value));
+  if (text !== undefined) element.textContent = text;
+  return element;
 }
+
+function tickLabel(at, unit, span) {
+  const date = new Date(at);
+  if (unit === 'M') return date.getMonth() === 0 ? monthYear.format(date) : monthOnly.format(date);
+  if (unit === 'd') return dayMonth.format(date);
+  const midnight = date.getHours() === 0 && date.getMinutes() === 0;
+  return midnight && span > 12 * HOUR ? dayMonth.format(date) : clock.format(date);
+}
+
 function renderChart() {
-  const chart = $('history-chart');
-  clearHover();
-  chartWindow = latest?.history?.windows.find((w) => w.key === selectedWindow) ?? null;
-  const title = node(
-    'title',
-    { id: 'chart-title' },
-    `${names[selectedMetric]} history · ${selectedWindow === 'all' ? 'all recorded time' : selectedWindow}`,
-  );
-  const description = node(
-    'desc',
-    { id: 'chart-description' },
-    'Average per time bucket. Empty buckets are gaps. Use left and right arrow keys for readings, or open View chart data for a table.',
-  );
-  chart.replaceChildren(title, description);
-  const left = 52,
-    right = 1080,
-    top = 15,
-    bottom = 260;
-  let maximum = 100,
-    minimum = 0;
-  const readings =
-    chartWindow?.points.map((p) => p[selectedMetric]).filter((v) => v !== null) ?? [];
-  if (selectedMetric === 'temperature') {
-    minimum = Math.floor(Math.min(20, ...readings) / 10) * 10;
-    maximum = Math.ceil(Math.max(50, ...readings) / 10) * 10;
+  const box = $('chart');
+  const canvas = $('chart-svg');
+  const keep = selectedAt;
+  clearSelection();
+  selectedAt = keep;
+  canvas.replaceChildren();
+  view = null;
+  const w = currentWindow();
+  const width = Math.round(box.clientWidth);
+  const height = Math.round(box.clientHeight);
+  const empty = $('chart-empty');
+  if (width < 80 || height < 80) return;
+  canvas.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+  const spec = METRICS[metric];
+  if (!w || !(w.to > w.from)) {
+    empty.hidden = false;
+    empty.textContent = history
+      ? 'Nothing recorded for this period yet.'
+      : 'Waiting for the first history export.';
+    return;
   }
-  const y = (v) => bottom - ((v - minimum) / (maximum - minimum)) * (bottom - top);
-  const x = (i) => left + (i / 95) * (right - left);
-  chartScale = { x, y };
-  for (let i = 0; i <= 4; i++) {
-    const value = minimum + ((maximum - minimum) * i) / 4;
-    chart.append(
-      node('line', {
-        x1: left,
-        x2: right,
-        y1: y(value),
-        y2: y(value),
-        stroke: '#252529',
-        'stroke-width': 1,
-        'stroke-dasharray': '3 5',
-      }),
-      node(
+
+  const values = w.points.map((p) => p[metric]).filter((v) => v !== null && v !== undefined);
+  const scale = valueScale(metric, values, live?.data.thermalWarnC ?? null);
+  const labels = scale.ticks.map((t) => spec.tick(t));
+  const left = Math.ceil(Math.max(...labels.map((l) => l.length)) * 7.4) + 14;
+  const right = width - 10;
+  const top = 14;
+  const bottom = height - 30;
+  const x = (t) => left + ((t - w.from) / (w.to - w.from)) * (right - left);
+  const y = (v) => bottom - ((v - scale.min) / (scale.max - scale.min)) * (bottom - top);
+  const span = w.to - w.from;
+
+  const { runs, gaps } = runsAndGaps(w.points, metric, w.from, w.to);
+  const drawn = runs.flat().map((p) => ({ at: p.at, value: p.value, x: x(p.at), y: y(p.value) }));
+  empty.hidden = drawn.length > 0;
+  if (!drawn.length) empty.textContent = `No ${spec.name.toLowerCase()} readings in this period.`;
+
+  const defs = svg('defs');
+  const hatch = svg('pattern', {
+    id: 'gap-hatch',
+    width: 7,
+    height: 7,
+    patternUnits: 'userSpaceOnUse',
+    patternTransform: 'rotate(45)',
+  });
+  hatch.append(svg('line', { x1: 0, y1: 0, x2: 0, y2: 7, class: 'hatch-line' }));
+  defs.append(hatch);
+  canvas.append(defs);
+
+  scale.ticks.forEach((tick, i) => {
+    canvas.append(
+      svg('line', { x1: left, x2: right, y1: y(tick), y2: y(tick), class: i ? 'grid' : 'axis' }),
+      svg(
         'text',
-        {
-          x: left - 12,
-          y: y(value) + 4,
-          fill: '#92949e',
-          'font-size': 11,
-          'font-family': 'ui-monospace, monospace',
-          'text-anchor': 'end',
-        },
-        `${Math.round(value)}${selectedMetric === 'temperature' ? '°' : '%'}`,
+        { x: left - 8, y: y(tick) + 4, 'text-anchor': 'end', class: 'tick-label' },
+        labels[i],
+      ),
+    );
+  });
+
+  const maxTicks = Math.max(2, Math.min(7, Math.floor((right - left) / 96)));
+  const time = timeTicks(w.from, w.to, maxTicks);
+  for (const tick of time.ticks) {
+    const px = x(tick);
+    const anchor = px < left + 22 ? 'start' : px > right - 22 ? 'end' : 'middle';
+    canvas.append(
+      svg('line', { x1: px, x2: px, y1: bottom, y2: bottom + 5, class: 'axis' }),
+      svg(
+        'text',
+        { x: px, y: bottom + 21, 'text-anchor': anchor, class: 'tick-label' },
+        tickLabel(tick, time.unit, span),
       ),
     );
   }
-  const defs = node('defs');
-  const gradient = node('linearGradient', {
-    id: 'area-gradient',
-    x1: '0',
-    y1: '0',
-    x2: '0',
-    y2: '1',
-  });
-  gradient.append(
-    node('stop', { offset: '0%', 'stop-color': '#26bcc5', 'stop-opacity': '.20' }),
-    node('stop', { offset: '100%', 'stop-color': '#26bcc5', 'stop-opacity': '0' }),
-  );
-  defs.append(gradient);
-  chart.append(defs);
-  let segment = [];
-  function drawSegment() {
-    if (!segment.length) return;
-    const line = segment
-      .map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(2)},${py.toFixed(2)}`)
-      .join(' ');
-    chart.append(
-      node('path', {
-        d: `${line} L${segment.at(-1)[0]},${bottom} L${segment[0][0]},${bottom} Z`,
-        fill: 'url(#area-gradient)',
-      }),
+
+  // Stretches with no readings are hatched. Time before the archive began is not an outage.
+  const earliest = history?.firstAt ?? w.from;
+  const visibleGaps = [];
+  for (const gap of gaps) {
+    const from = Math.max(gap.from, earliest);
+    if (gap.to - from <= 2.5 * SAMPLE_MS) continue;
+    const x0 = Math.max(left, x(from));
+    const x1 = Math.min(right, x(gap.to));
+    visibleGaps.push({ from, to: gap.to, x0, x1 });
+    canvas.append(
+      svg('rect', { x: x0, y: top, width: x1 - x0, height: bottom - top, fill: 'url(#gap-hatch)' }),
     );
-    chart.append(
-      node('path', {
-        d: line,
-        fill: 'none',
-        stroke: '#26bcc5',
-        'stroke-width': 2,
-        'stroke-linejoin': 'round',
-        'stroke-linecap': 'round',
-        'vector-effect': 'non-scaling-stroke',
-      }),
-    );
-    if (segment.length === 1)
-      chart.append(node('circle', { cx: segment[0][0], cy: segment[0][1], r: 3, fill: '#26bcc5' }));
-    segment = [];
+    if (x1 - x0 >= 120) {
+      const mid = (x0 + x1) / 2;
+      canvas.append(
+        svg('rect', {
+          x: mid - 46,
+          y: (top + bottom) / 2 - 11,
+          width: 92,
+          height: 22,
+          class: 'gap-label-bg',
+        }),
+        svg(
+          'text',
+          { x: mid, y: (top + bottom) / 2 + 5, 'text-anchor': 'middle', class: 'gap-label' },
+          'No readings',
+        ),
+      );
+    }
   }
-  chartWindow?.points.forEach((p, i) => {
-    const value = p[selectedMetric];
-    if (value === null) drawSegment();
-    else segment.push([x(i), y(value)]);
-  });
-  drawSegment();
-  chart.append(
-    node('line', {
-      id: 'chart-crosshair',
-      x1: left,
-      x2: left,
-      y1: top,
-      y2: bottom,
-      stroke: '#729499',
-      'stroke-dasharray': '4 4',
-      'stroke-width': 1,
-      visibility: 'hidden',
-    }),
-  );
-  $('chart-empty').hidden = readings.length > 0;
-  text(
-    'chart-empty',
-    !chartWindow
-      ? 'Waiting for the first archive export…'
-      : `No ${names[selectedMetric].toLowerCase()} readings in this period.`,
-  );
-  const summary = chartWindow?.[selectedMetric];
-  ['mean', 'min', 'max'].forEach((key) =>
-    text(`history-${key}`, summary ? `${decimal(summary[key])}${unit()}` : '—'),
-  );
-  text('history-count', summary ? integer.format(summary.count) : '0');
-  text('range-start', chartWindow ? dateTime.format(new Date(chartWindow.from)) : '—');
-  text('range-end', chartWindow ? dateTime.format(new Date(chartWindow.to - 1)) : '—');
-  const expected = chartWindow ? Math.max(1, (chartWindow.to - chartWindow.from) / 60_000) : 0;
-  text(
-    'coverage-note',
-    chartWindow
-      ? `${integer.format(chartWindow.count)} samples · ${Math.min(100, (chartWindow.count / expected) * 100).toFixed(1)}% of a 1/min cadence · gaps stay empty`
-      : 'Metrics are sampled once a minute. Empty periods stay empty.',
-  );
-  const age = latest?.history ? Date.now() - latest.history.generatedAt : Infinity;
-  text(
-    'history-updated',
-    age > 600_000 && Number.isFinite(age)
-      ? `Archive export stale · ${Math.floor(age / 60_000)} min old`
-      : 'Archive updates every 5 min',
-  );
-  text(
-    'data-caption',
-    `${names[selectedMetric]} selected · ${selectedWindow} · all values are bucket averages`,
-  );
-  const body = $('chart-data');
-  body.replaceChildren();
-  for (const point of chartWindow?.points ?? []) {
-    const row = document.createElement('tr');
-    [
-      dateTime.format(new Date(point.at)),
-      `${decimal(point.cpu)}${point.cpu === null ? '' : '%'}`,
-      `${decimal(point.memory)}${point.memory === null ? '' : '%'}`,
-      `${decimal(point.temperature)}${point.temperature === null ? '' : ' °C'}`,
-    ].forEach((value) => {
-      const cell = document.createElement('td');
-      cell.textContent = value;
-      row.append(cell);
-    });
-    body.append(row);
+
+  const warn = live?.data.thermalWarnC;
+  if (metric === 'temperature' && warn != null && warn <= scale.max && warn >= scale.min) {
+    canvas.append(
+      svg('line', { x1: left, x2: right, y1: y(warn), y2: y(warn), class: 'warn-line' }),
+      svg(
+        'text',
+        { x: right, y: y(warn) - 6, 'text-anchor': 'end', class: 'warn-label' },
+        `Warning level ${warn}${NBSP}°C`,
+      ),
+    );
+  }
+
+  for (const run of runs) {
+    if (run.length === 1) {
+      canvas.append(svg('circle', { cx: x(run[0].at), cy: y(run[0].value), r: 2.5, class: 'dot' }));
+      continue;
+    }
+    const d = run
+      .map((p, i) => `${i ? 'L' : 'M'}${x(p.at).toFixed(1)},${y(p.value).toFixed(1)}`)
+      .join('');
+    canvas.append(svg('path', { d, class: 'series' }));
+  }
+
+  const cursor = svg('line', { y1: top, y2: bottom, class: 'cursor' });
+  const marker = svg('circle', { r: 4.5, class: 'marker' });
+  cursor.setAttribute('visibility', 'hidden');
+  marker.setAttribute('visibility', 'hidden');
+  canvas.append(cursor, marker);
+
+  view = {
+    width,
+    height,
+    left,
+    right,
+    top,
+    bottom,
+    drawn,
+    xs: drawn.map((p) => p.x),
+    gaps: visibleGaps,
+    slice: span / Math.max(1, w.points.length),
+    cursor,
+    marker,
+    selected: -1,
+  };
+  if (selectedAt !== null && drawn.length)
+    select(
+      nearestIndex(
+        drawn.map((p) => p.at),
+        selectedAt,
+      ),
+    );
+}
+
+function showTip(x, y, lines) {
+  const tip = $('tip');
+  tip.replaceChildren();
+  const heading = document.createElement('strong');
+  heading.textContent = lines[0];
+  const detail = document.createElement('span');
+  detail.textContent = lines[1];
+  tip.append(heading, detail);
+  tip.hidden = false;
+  const half = tip.offsetWidth / 2;
+  const clampedX = Math.max(half + 2, Math.min(view.width - half - 2, x));
+  tip.style.left = `${clampedX}px`;
+  const above = y - tip.offsetHeight - 12;
+  tip.style.top = `${Math.max(0, y < view.height / 2 || above < 0 ? y + 14 : above)}px`;
+}
+
+function select(index, { speak = false } = {}) {
+  if (!view || !view.drawn[index]) return;
+  const point = view.drawn[index];
+  const spec = METRICS[metric];
+  view.selected = index;
+  selectedAt = point.at;
+  view.cursor.setAttribute('x1', point.x);
+  view.cursor.setAttribute('x2', point.x);
+  view.cursor.setAttribute('visibility', 'visible');
+  view.marker.setAttribute('cx', point.x);
+  view.marker.setAttribute('cy', point.y);
+  view.marker.setAttribute('visibility', 'visible');
+  const average = view.slice > 1.5 * SAMPLE_MS ? ` · ${formatSpan(view.slice)} average` : '';
+  showTip(point.x, point.y, [
+    stamp.format(point.at),
+    `${spec.name} ${spec.format(point.value)}${average}`,
+  ]);
+  if (speak) setText('chart-live', `${stamp.format(point.at)}: ${spec.format(point.value)}`);
+}
+
+function selectGap(gap, x) {
+  if (!view) return;
+  selectedAt = null;
+  view.selected = -1;
+  view.cursor.setAttribute('visibility', 'hidden');
+  view.marker.setAttribute('visibility', 'hidden');
+  showTip(x, view.top + 8, [
+    'No readings',
+    `${shortStamp.format(gap.from)} to ${shortStamp.format(gap.to)}`,
+  ]);
+}
+
+function clearSelection() {
+  selectedAt = null;
+  $('tip').hidden = true;
+  if (view) {
+    view.selected = -1;
+    view.cursor.setAttribute('visibility', 'hidden');
+    view.marker.setAttribute('visibility', 'hidden');
   }
 }
+
+function pointAt(event) {
+  if (!view) return;
+  const x = event.clientX - $('chart-svg').getBoundingClientRect().left;
+  const gap = view.gaps.find((g) => x >= g.x0 && x <= g.x1);
+  if (gap) selectGap(gap, x);
+  else if (view.drawn.length) select(nearestIndex(view.xs, x));
+}
+
+// ---------------------------------------------------------------------------------------------
+// History text and table
+// ---------------------------------------------------------------------------------------------
+
+function renderHistoryText() {
+  const w = currentWindow();
+  const spec = METRICS[metric];
+  if (!w) {
+    setText('summary', '');
+    setText('chart-note', '');
+    return;
+  }
+  setText('summary', summarySentence(metric, w.key, w[metric], spec.format));
+  const notes = [coverageSentence(w.count, w.from, w.to)];
+  const slice = (w.to - w.from) / Math.max(1, w.points.length);
+  if (slice > 1.5 * SAMPLE_MS)
+    notes.push(
+      `The line shows the average of each ${formatSpan(slice)} slice, so a short peak looks lower on it than the highest single reading.`,
+    );
+  const { gaps } = runsAndGaps(w.points, metric, w.from, w.to);
+  if (gaps.some((g) => g.to - Math.max(g.from, history.firstAt ?? g.from) > 2.5 * SAMPLE_MS))
+    notes.push('Hatched stretches have no readings.');
+  if (live && live.data.generatedAt - history.generatedAt > 600_000)
+    notes.push(
+      `The history is ${formatSpan(live.data.generatedAt - history.generatedAt)} behind the live readings.`,
+    );
+  setText('chart-note', notes.join(' '));
+}
+
+function renderTable() {
+  const w = currentWindow();
+  const body = $('table-body');
+  body.replaceChildren();
+  if (!w) return;
+  const wide = w.to - w.from > 36 * HOUR;
+  const fmt = wide ? shortStamp : clock;
+  const cell = (text, header = false) => {
+    const element = document.createElement(header ? 'th' : 'td');
+    if (header) element.scope = 'row';
+    element.textContent = text;
+    return element;
+  };
+  for (const point of w.points) {
+    if (point.cpu === null && point.memory === null && point.temperature === null) continue;
+    const row = document.createElement('tr');
+    row.append(
+      cell(fmt.format(point.at), true),
+      cell(point.cpu === null ? '–' : METRICS.cpu.format(point.cpu)),
+      cell(point.memory === null ? '–' : METRICS.memory.format(point.memory)),
+      cell(point.temperature === null ? '–' : METRICS.temperature.format(point.temperature)),
+    );
+    body.append(row);
+  }
+  const phrase = WINDOWS.find((x) => x.key === w.key)?.phrase ?? '';
+  setText(
+    'table-caption',
+    `Averages per time slice over ${phrase}. Slices without a reading are left out.`,
+  );
+}
+
+function syncControls() {
+  const keys = availableWindows(history);
+  for (const button of document.querySelectorAll('[data-window]'))
+    button.hidden = !keys.includes(button.dataset.window);
+  // One option is not a choice: a young archive only offers "All", so show no control at all.
+  $('windows').hidden = keys.length < 2;
+  if (!keys.includes(windowKey)) windowKey = keys.length ? defaultWindow(keys) : null;
+  for (const button of document.querySelectorAll('[data-window]'))
+    button.setAttribute('aria-pressed', String(button.dataset.window === windowKey));
+  for (const button of document.querySelectorAll('[data-metric]'))
+    button.setAttribute('aria-pressed', String(button.dataset.metric === metric));
+}
+
+function renderHistory() {
+  syncControls();
+  renderChart();
+  renderHistoryText();
+  renderTable();
+}
+
 for (const button of document.querySelectorAll('[data-window]'))
   button.addEventListener('click', () => {
-    selectedWindow = button.dataset.window;
-    for (const b of document.querySelectorAll('[data-window]'))
-      b.setAttribute('aria-pressed', String(b === button));
-    renderChart();
+    windowKey = button.dataset.window;
+    selectedAt = null;
+    renderHistory();
   });
 for (const button of document.querySelectorAll('[data-metric]'))
   button.addEventListener('click', () => {
-    selectedMetric = button.dataset.metric;
-    for (const b of document.querySelectorAll('[data-metric]'))
-      b.setAttribute('aria-pressed', String(b === button));
-    renderChart();
+    metric = button.dataset.metric;
+    renderHistory();
   });
-$('history-chart').addEventListener('pointermove', (event) => {
-  const rect = $('history-chart').getBoundingClientRect();
-  const location = ((event.clientX - rect.left) / rect.width) * 1100;
-  selectPoint(Math.round(((location - 52) / (1080 - 52)) * 95));
+
+const chartBox = $('chart');
+chartBox.addEventListener('pointerdown', pointAt);
+chartBox.addEventListener('pointermove', (event) => {
+  if (event.pointerType !== 'touch' || event.buttons) pointAt(event);
 });
-$('history-chart').addEventListener('pointerleave', clearHover);
-$('history-chart').addEventListener('blur', clearHover);
-$('history-chart').addEventListener('keydown', (event) => {
-  if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
-    event.preventDefault();
-    selectPoint((hovered < 0 ? 0 : hovered) + (event.key === 'ArrowRight' ? 1 : -1));
-  } else if (event.key === 'Escape') clearHover();
+chartBox.addEventListener('pointerleave', (event) => {
+  if (event.pointerType !== 'touch') clearSelection();
 });
-$('privacy-open').addEventListener('click', () => $('privacy-dialog').showModal());
-$('privacy-close').addEventListener('click', () => $('privacy-dialog').close());
-for (const link of document.querySelectorAll('nav a'))
-  link.addEventListener('click', () => {
-    for (const a of document.querySelectorAll('nav a'))
-      a.classList.toggle('nav-active', a === link);
+// A touch selection stays until the next tap lands somewhere else.
+document.addEventListener('pointerdown', (event) => {
+  if (!chartBox.contains(event.target)) clearSelection();
+});
+chartBox.addEventListener('blur', clearSelection);
+chartBox.addEventListener('keydown', (event) => {
+  if (!view?.drawn.length) return;
+  const last = view.drawn.length - 1;
+  let next = null;
+  if (event.key === 'ArrowLeft') next = view.selected < 0 ? last : Math.max(0, view.selected - 1);
+  else if (event.key === 'ArrowRight')
+    next = view.selected < 0 ? last : Math.min(last, view.selected + 1);
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = last;
+  else if (event.key === 'Escape') {
+    clearSelection();
+    return;
+  } else return;
+  event.preventDefault();
+  select(next, { speak: true });
+});
+
+let frame = 0;
+new ResizeObserver(() => {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    if (
+      !view ||
+      view.width !== Math.round(chartBox.clientWidth) ||
+      view.height !== Math.round(chartBox.clientHeight)
+    )
+      renderChart();
   });
-async function poll() {
-  if (pending || document.hidden) return;
-  pending = true;
-  controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), 8000);
+}).observe(chartBox);
+
+// ---------------------------------------------------------------------------------------------
+// Privacy dialog
+// ---------------------------------------------------------------------------------------------
+
+const dialog = $('privacy-dialog');
+$('privacy-open').addEventListener('click', () => dialog.showModal());
+$('privacy-close').addEventListener('click', () => dialog.close());
+dialog.addEventListener('click', (event) => {
+  if (event.target === dialog) dialog.close();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------------------------
+
+async function request(path, signal, options = {}) {
+  const response = await fetch(path, {
+    signal,
+    credentials: 'omit',
+    redirect: 'error',
+    ...options,
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response;
+}
+
+/** History changes every five minutes, so it is fetched only when /api/live says there is more. */
+async function syncHistory(signal) {
+  const wanted = live.data.historyGeneratedAt;
+  if (wanted === null || wanted === undefined || history?.generatedAt === wanted) return;
   try {
-    const response = await fetch('/api/metrics', {
-      signal: controller.signal,
-      cache: 'no-store',
-      credentials: 'omit',
-      redirect: 'error',
-    });
-    if (!response.ok) throw new Error('Readings unavailable');
-    const payload = await response.json();
-    if (!payload.data || payload.data.schema !== 1) throw new Error('Unsupported data');
-    latest = payload.data;
-    lastResponseAt = Date.now();
-    demo = response.headers.get('X-Optiplex-Preview') === 'sample-data';
-    renderLive();
-    renderChart();
-    renderStatus();
+    const next = await (await request('/api/history', signal, { cache: 'no-cache' })).json();
+    if (!Array.isArray(next?.windows)) throw new Error('Unsupported history');
+    history = next;
+    renderHistory();
   } catch {
-    if (latest) {
-      state('stale', 'Connection interrupted');
-      notice(
-        'The latest update could not be loaded. Values shown are the last recorded readings; the page will retry automatically.',
-      );
-    } else {
-      state('unavailable', 'Readings unavailable');
-      notice(
-        'The monitor has not published readable metrics yet, or the connection is unavailable. The page will retry automatically.',
-      );
-    }
+    // Keep whatever history is already on screen; the next poll tries again.
+  }
+}
+
+async function poll() {
+  const id = ++requestId;
+  inflight?.abort();
+  const controller = new AbortController();
+  inflight = controller;
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await request('/api/live', controller.signal, { cache: 'no-store' });
+    const payload = await response.json();
+    if (id !== requestId) return;
+    if (payload?.data?.schema !== 1 || !payload.status) throw new Error('Unsupported data');
+    live = {
+      data: payload.data,
+      status: payload.status,
+      receivedAt: performance.now(),
+      preview: response.headers.get('X-Optiplex-Preview') === 'sample-data',
+    };
+    failures = 0;
+    renderLive();
+    renderStatus();
+    await syncHistory(controller.signal);
+    if (id === requestId) renderHistoryText();
+  } catch {
+    if (id !== requestId || document.hidden) return;
+    failures++;
+    renderStatus();
   } finally {
-    clearTimeout(deadline);
-    pending = false;
-    controller = null;
+    clearTimeout(timeout);
+    if (inflight === controller) inflight = null;
   }
 }
-function schedule() {
-  clearInterval(timer);
-  if (!document.hidden) {
-    poll().catch(() => {});
-    timer = setInterval(() => {
-      renderStatus();
-      poll().catch(() => {});
-    }, 30_000);
-  }
+
+async function cycle(current) {
+  if (current !== generation || document.hidden) return;
+  await poll();
+  if (current === generation && !document.hidden)
+    pollTimer = setTimeout(() => cycle(current), POLL_MS);
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    clearInterval(timer);
-    controller?.abort();
-  } else schedule();
-});
-renderChart();
-schedule();
+
+function restart() {
+  generation++;
+  clearTimeout(pollTimer);
+  inflight?.abort();
+  if (!document.hidden) cycle(generation);
+}
+
+document.addEventListener('visibilitychange', restart);
+window.addEventListener('online', restart);
+setInterval(() => {
+  if (!document.hidden) renderStatus();
+}, 10_000);
+
+renderStatus();
+renderHistory();
+restart();
