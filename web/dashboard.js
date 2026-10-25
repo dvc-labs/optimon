@@ -117,7 +117,7 @@ function setNotice(message, demo = false) {
 function renderStatus() {
   if (!live) {
     setState('unavailable');
-    setText('verdict', failures ? 'No readings yet.' : 'optiplex');
+    setText('verdict', failures ? 'No readings yet.' : 'optimon');
     setText(
       'detail',
       failures
@@ -245,8 +245,8 @@ function renderArchiveNote() {
   setText(
     'version',
     history?.firstAt != null
-      ? `optiplex v${live.data.version}. ${whole.format(history.totalSamples)} readings since ${dateOnly.format(new Date(history.firstAt))}.`
-      : `optiplex v${live.data.version}`,
+      ? `optimon v${live.data.version}. ${whole.format(history.totalSamples)} readings since ${dateOnly.format(new Date(history.firstAt))}.`
+      : `optimon v${live.data.version}`,
   );
 }
 
@@ -758,7 +758,7 @@ async function poll() {
       data: payload.data,
       status: payload.status,
       receivedAt: performance.now(),
-      preview: response.headers.get('X-Optiplex-Preview') === 'sample-data',
+      preview: response.headers.get('X-Optimon-Preview') === 'sample-data',
     };
     failures = 0;
     renderLive();

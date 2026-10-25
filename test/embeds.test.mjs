@@ -183,9 +183,9 @@ test('a full audit page fits one Discord embed and excludes command arguments', 
 test('long windows use days and comparison increases have explicit positive deltas', () => {
   const previous = historySummary({ minutes: 525600 });
   const current = historySummary({ minutes: 525600, cpu: { ...previous.cpu, mean: 8 } });
-  assert.equal(historyEmbed(current).toJSON().title, 'Optiplex · Last 365d');
+  assert.equal(historyEmbed(current).toJSON().title, 'Optimon · Last 365d');
   const result = comparisonEmbed({ current, previous }).toJSON();
-  assert.equal(result.title, 'Optiplex · Compare 365d windows');
+  assert.equal(result.title, 'Optimon · Compare 365d windows');
   assert.match(
     result.fields.find((f) => f.name === 'CPU busy').value,
     /Δ \+3\.0 percentage points/,

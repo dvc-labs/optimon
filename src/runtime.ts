@@ -283,7 +283,7 @@ export class MonitorRuntime {
       this.logger('interaction_failed', safeError(error));
       const payload = {
         embeds: [
-          baseEmbed('Optiplex · Command failed').setDescription(
+          baseEmbed('Optimon · Command failed').setDescription(
             'Please try again later. The owner can check the bot logs.',
           ),
         ],

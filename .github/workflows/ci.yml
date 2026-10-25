@@ -40,19 +40,19 @@ jobs:
           CHANNEL_ID: '333333333333333333'
           DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
       - name: Build the runtime image
-        run: docker build --tag optiplex-ci .
+        run: docker build --tag optimon-ci .
       - name: Smoke-test the runtime image without credentials
         run: |
           docker run --rm --network none --read-only --cap-drop ALL \
-            --security-opt no-new-privileges:true optiplex-ci \
+            --security-opt no-new-privileges:true optimon-ci \
             node --input-type=module -e '
               import { commandDefinitions } from "./dist/commands.js";
               import { VERSION } from "./dist/version.js";
-              console.log(`Optiplex v${VERSION}: ${commandDefinitions().length} commands on ${process.version}`);
+              console.log(`Optimon v${VERSION}: ${commandDefinitions().length} commands on ${process.version}`);
             '
       - name: Verify history across replacement containers
         run: |
-          history_volume="optiplex-history-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          history_volume="optimon-history-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           docker volume create "$history_volume"
           trap 'docker volume rm "$history_volume" > /dev/null' EXIT
           for phase in save restore; do
@@ -60,11 +60,11 @@ jobs:
               --security-opt no-new-privileges:true \
               --memory 256m --cpus 0.50 --pids-limit 64 \
               --mount "type=volume,source=$history_volume,target=/app/data" \
-              --env "HISTORY_SMOKE_PHASE=$phase" -i optiplex-ci \
+              --env "HISTORY_SMOKE_PHASE=$phase" -i optimon-ci \
               node --input-type=module < test/storage-container.mjs
           done
       - name: Build the isolated public dashboard image
-        run: docker build --target dashboard --tag optiplex-dashboard-ci .
+        run: docker build --target dashboard --tag optimon-dashboard-ci .
       - name: Verify HTTPS and public isolation in a restricted dashboard container
         run: |
           fixture_dir="$(mktemp -d)"
@@ -81,7 +81,7 @@ jobs:
             const live = { capturedAt: Date.now(), hostUptime: 1000, botUptime: 60,
               cpuPercent: 5, cores: 6, memory: null, swap: null, load: [0.1,0.2,0.3], temperatures: [] };
             writeFileSync(`${process.env.FIXTURE_DIR}/public/metrics.json`, JSON.stringify({
-              schema: 1, version: "0.3.0", generatedAt: Date.now(), thermalWarnC: 80,
+              schema: 1, version: "0.3.1", generatedAt: Date.now(), thermalWarnC: 80,
               thermalRecoverC: 75, live, history: null
             }));
           '
@@ -96,4 +96,4 @@ jobs:
             --env DASHBOARD_TLS_CA=/app/tls/origin-ca.pem \
             --env PUBLIC_DATA_PATH=/app/public-data \
             --env NODE_OPTIONS=--max-old-space-size=64 \
-            -i optiplex-dashboard-ci node --input-type=module < test/dashboard-container.mjs
+            -i optimon-dashboard-ci node --input-type=module < test/dashboard-container.mjs

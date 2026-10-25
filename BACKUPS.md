@@ -1,4 +1,4 @@
-# Back up and restore Optiplex
+# Back up and restore Optimon
 
 The bot writes to the local `history-data` Docker volume at `/app/data`. Keep this
 volume across deployments. It contains the full metric archive and the configured

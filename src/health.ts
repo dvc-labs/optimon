@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-export const HEALTH_PATH = '/tmp/optiplex-health.json';
+export const HEALTH_PATH = '/tmp/optimon-health.json';
 
 export function isHealthy(record: unknown, now = Date.now()): boolean {
   if (
