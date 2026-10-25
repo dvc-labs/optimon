@@ -133,7 +133,7 @@ test('post-ready wiring registers, samples, persists, updates presence and posts
   assert.deepEqual(f.events, ['register', 'collect', 'activity', 'send']);
   assert.equal(f.telemetry.status().metricCount, 1);
   assert.equal(f.sent.length, 1);
-  assert.equal(f.sent[0].title, 'Optiplex monitor is online');
+  assert.equal(f.sent[0].title, 'Optimon is online');
   assert.deepEqual(
     f.jobs.map((job) => job.interval),
     [60_000, 30 * 60_000],
@@ -143,7 +143,7 @@ test('post-ready wiring registers, samples, persists, updates presence and posts
   assert.equal(f.telemetry.status().metricCount, 2);
   await f.jobs[1].task();
   assert.equal(f.sent.length, 2);
-  assert.equal(f.sent[1].title, 'Optiplex · Host snapshot');
+  assert.equal(f.sent[1].title, 'Optimon · Host snapshot');
 });
 
 test('thermal send failures have dedicated logs and diagnostic counters and retry before confirmation', async (t) => {
@@ -197,7 +197,7 @@ test('thermal send failures have dedicated logs and diagnostic counters and retr
   const fields = diagnostics.calls[1][1].embeds[0].toJSON().fields;
   assert.equal(fields.find((field) => field.name === 'Thermal delivery failures').value, '2');
   await f.jobs[1].task();
-  assert.equal(f.sent.at(-1).title, 'Optiplex · Host snapshot');
+  assert.equal(f.sent.at(-1).title, 'Optimon · Host snapshot');
 });
 
 test('pausing channel reports does not pause durable samples, thermal alerts or the external heartbeat', async (t) => {

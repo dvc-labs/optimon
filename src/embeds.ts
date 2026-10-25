@@ -12,12 +12,12 @@ import { THERMAL_WARN_C, THERMAL_RECOVER_C, type ThermalEvent } from './monitori
 import { VERSION } from './version.js';
 
 export const BRAND_COLOR = 0x007db8;
-export const FOOTER = `Optiplex • v${VERSION} • dvc.labs`;
+export const FOOTER = `Optimon • v${VERSION} • dvc.labs`;
 
 export function baseEmbed(title: string, date = new Date()): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
-    .setAuthor({ name: 'Optiplex' })
+    .setAuthor({ name: 'Optimon' })
     .setTitle(title)
     .setFooter({ text: FOOTER })
     .setTimestamp(date);
@@ -39,7 +39,7 @@ function timestamp(ms: number, style = 'R'): string {
 }
 
 export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder {
-  return baseEmbed('About Optiplex')
+  return baseEmbed('About Optimon')
     .setDescription(
       'A small companion for optiplex: keeping an eye on the home lab, one temperature reading at a time.',
     )
@@ -58,7 +58,7 @@ export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder
           ? `Paused until ${timestamp(reports.pausedUntil, 't')}`
           : `Every ${config.intervalMinutes} minutes in <#${config.channelId}>`,
       },
-      { name: 'Source', value: '[dvc-labs/optiplex](https://github.com/dvc-labs/optiplex)' },
+      { name: 'Source', value: '[dvc-labs/optimon](https://github.com/dvc-labs/optimon)' },
     );
 }
 
@@ -70,7 +70,7 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
     ? Math.max(...snapshot.temperatures.map((value) => value.celsius))
     : null;
   const embed = baseEmbed(
-    startup ? 'Optiplex monitor is online' : 'Optiplex · Host snapshot',
+    startup ? 'Optimon is online' : 'Optimon · Host snapshot',
     snapshot.capturedAt,
   )
     .setDescription(
@@ -132,7 +132,7 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
 }
 
 export function helpEmbed(): EmbedBuilder {
-  return baseEmbed('Optiplex · Command guide')
+  return baseEmbed('Optimon · Command guide')
     .setDescription('A tiny Dell with opinions and telemetry.')
     .addFields(
       {
@@ -170,7 +170,7 @@ export function helpEmbed(): EmbedBuilder {
 
 export function uptimeEmbed(snapshot: Snapshot, config: Config): EmbedBuilder {
   const now = snapshot.capturedAt.getTime();
-  return baseEmbed('Optiplex · Uptime', snapshot.capturedAt)
+  return baseEmbed('Optimon · Uptime', snapshot.capturedAt)
     .setDescription(`The clocks aboard **${config.hostName}**.`)
     .addFields(
       { name: 'Host uptime', value: formatDuration(snapshot.hostUptime), inline: true },
@@ -195,7 +195,7 @@ function signedDelta(value: number): string {
 }
 
 export function historyEmbed(history: HistorySummary): EmbedBuilder {
-  const embed = baseEmbed(`Optiplex · Last ${formatWindow(history.minutes)}`).setDescription(
+  const embed = baseEmbed(`Optimon · Last ${formatWindow(history.minutes)}`).setDescription(
     history.count
       ? `${history.count} periodic samples in this window.\n` +
           '24 equal time buckets, oldest → newest; `·` means no reading. ' +
@@ -227,7 +227,7 @@ export function historyEmbed(history: HistorySummary): EmbedBuilder {
 }
 
 export function pingEmbed(gatewayMs: number, acknowledgementMs: number): EmbedBuilder {
-  return baseEmbed('Optiplex · Discord connection')
+  return baseEmbed('Optimon · Discord connection')
     .setDescription('Timing the trip from this bot to Discord.')
     .addFields(
       {
@@ -269,7 +269,7 @@ export function vibeEmbed(snapshot: Snapshot): EmbedBuilder {
     mood =
       `${snapshot.cores ? `${snapshot.cores} logical CPUs` : 'A tiny chassis'} and an Ethernet cable. ` +
       'I am dramatically overqualified for watching my own temperature.';
-  return baseEmbed('Optiplex · Current mood', snapshot.capturedAt)
+  return baseEmbed('Optimon · Current mood', snapshot.capturedAt)
     .setDescription(mood)
     .addFields(
       {
@@ -302,7 +302,7 @@ export function diagnosticsEmbed(
   config: Config,
   data: Diagnostics,
 ): EmbedBuilder {
-  return baseEmbed('Optiplex · Owner diagnostics')
+  return baseEmbed('Optimon · Owner diagnostics')
     .setDescription(
       'Bot process resources, persisted history and telemetry status. Process counters reset when the bot restarts.',
     )
@@ -398,7 +398,7 @@ export function diagnosticsEmbed(
 export function comparisonEmbed(comparison: HistoryComparison): EmbedBuilder {
   const { current, previous } = comparison;
   const embed = baseEmbed(
-    `Optiplex · Compare ${formatWindow(current.minutes)} windows`,
+    `Optimon · Compare ${formatWindow(current.minutes)} windows`,
   ).setDescription(
     'Current window versus the immediately preceding window. Values are averages of periodic samples; gaps can affect comparisons.',
   );
@@ -434,7 +434,7 @@ export function comparisonEmbed(comparison: HistoryComparison): EmbedBuilder {
 }
 
 export function auditEmbed(entries: readonly CommandAudit[]): EmbedBuilder {
-  const embed = baseEmbed('Optiplex · Command audit').setDescription(
+  const embed = baseEmbed('Optimon · Command audit').setDescription(
     'Private execution metadata. Arguments, message contents and credentials are not recorded.',
   );
   if (!entries.length)
@@ -457,8 +457,8 @@ export function thermalEmbed(event: ThermalEvent, snapshot: Snapshot): EmbedBuil
   const temperature = hottestTemperature(snapshot);
   return baseEmbed(
     event === 'hot'
-      ? 'Optiplex · Sustained CPU temperature warning'
-      : 'Optiplex · CPU temperature recovered',
+      ? 'Optimon · Sustained CPU temperature warning'
+      : 'Optimon · CPU temperature recovered',
     snapshot.capturedAt,
   )
     .setColor(event === 'hot' ? 0xe6a23c : 0x2eaf7d)

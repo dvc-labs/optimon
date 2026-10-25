@@ -28,7 +28,7 @@ import type { ExternalHeartbeatStatus } from './heartbeat.js';
 import { auditEmbed, comparisonEmbed } from './embeds.js';
 
 const PUBLIC_COMMANDS = [
-  ['about', 'About the Optiplex bot and its version.'],
+  ['about', 'About the Optimon bot and its version.'],
   ['stats', 'Current host CPU, RAM, swap and temperatures.'],
   ['uptime', 'Host and bot uptimes, with estimated start times.'],
   ['history', 'Recorded CPU, RAM and temperature trends.'],
@@ -213,7 +213,7 @@ export async function handleCommand(
     if (name === 'pause') {
       const until = reports.pause(interaction.options.getInteger('minutes') ?? 60);
       return edit(
-        baseEmbed('Optiplex · Scheduled reports paused').setDescription(
+        baseEmbed('Optimon · Scheduled reports paused').setDescription(
           `Paused until <t:${Math.floor(until / 1000)}:F>.\nSensor sampling and thermal alerts continue. A bot restart clears the pause.`,
         ),
       );
@@ -221,7 +221,7 @@ export async function handleCommand(
     if (name === 'resume') {
       reports.resume();
       return edit(
-        baseEmbed('Optiplex · Scheduled reports resumed').setDescription(
+        baseEmbed('Optimon · Scheduled reports resumed').setDescription(
           `Reports will post at the next regular ${config.intervalMinutes}-minute tick. Use \`/snapshot\` for a post now.`,
         ),
       );
@@ -246,7 +246,7 @@ export async function handleCommand(
       const remaining = context.manualCooldown.take('snapshot');
       if (remaining)
         return edit(
-          baseEmbed('Optiplex · Snapshot cooldown').setDescription(
+          baseEmbed('Optimon · Snapshot cooldown').setDescription(
             `Try again in ${Math.ceil(remaining / 1000)} seconds.`,
           ),
           'cooldown',
@@ -259,7 +259,7 @@ export async function handleCommand(
         throw error;
       }
       return edit(
-        baseEmbed('Optiplex · Snapshot posted').setDescription(`Sent to <#${config.channelId}>.`),
+        baseEmbed('Optimon · Snapshot posted').setDescription(`Sent to <#${config.channelId}>.`),
       );
     }
   }

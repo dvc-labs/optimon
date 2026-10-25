@@ -31,7 +31,7 @@ if (!['normal', 'young', 'stale', 'hot'].includes(scenario)) {
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
-const directory = await mkdtemp(join(tmpdir(), 'optiplex-preview-'));
+const directory = await mkdtemp(join(tmpdir(), 'optimon-preview-'));
 const started = Date.now();
 const firstMinute = Math.floor(
   (started - (scenario === 'young' ? 40 * MINUTE : 10 * DAY)) / MINUTE,
@@ -91,7 +91,7 @@ async function update() {
     join(directory, 'metrics.json'),
     JSON.stringify({
       schema: 1,
-      version: '0.3.0',
+      version: '0.3.1',
       generatedAt: at,
       thermalWarnC: 80,
       thermalRecoverC: 75,
@@ -127,7 +127,7 @@ const ogCard = (await readFile(new URL('./og-card.html', import.meta.url), 'utf8
 const [application] = server.listeners('request');
 server.removeAllListeners('request');
 server.on('request', (request, response) => {
-  response.setHeader('X-Optiplex-Preview', 'sample-data');
+  response.setHeader('X-Optimon-Preview', 'sample-data');
   if (request.url === '/__preview/og-card') {
     response.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -144,7 +144,7 @@ server.on('request', (request, response) => {
       'Cache-Control': 'no-store',
     });
     response.end(
-      `<!doctype html><html lang="en"><title>Optiplex responsive preview</title><body style="margin:0;background:#171719;color:#e8e9eb;font:14px system-ui"><p style="text-align:center">LOCAL SAMPLE DATA · <a style="color:#26bcc5" href="/__preview?width=320">320px</a> · <a style="color:#26bcc5" href="/__preview?width=390">390px</a> · <a style="color:#26bcc5" href="/__preview?width=768">768px</a> · <a style="color:#26bcc5" href="/">Desktop</a></p><iframe title="Mobile dashboard" src="/" width="${size}" height="900" style="display:block;margin:auto;border:1px solid #444;height:calc(100vh - 65px)"></iframe></body></html>`,
+      `<!doctype html><html lang="en"><title>Optimon responsive preview</title><body style="margin:0;background:#171719;color:#e8e9eb;font:14px system-ui"><p style="text-align:center">LOCAL SAMPLE DATA · <a style="color:#26bcc5" href="/__preview?width=320">320px</a> · <a style="color:#26bcc5" href="/__preview?width=390">390px</a> · <a style="color:#26bcc5" href="/__preview?width=768">768px</a> · <a style="color:#26bcc5" href="/">Desktop</a></p><iframe title="Mobile dashboard" src="/" width="${size}" height="900" style="display:block;margin:auto;border:1px solid #444;height:calc(100vh - 65px)"></iframe></body></html>`,
     );
     return;
   }
