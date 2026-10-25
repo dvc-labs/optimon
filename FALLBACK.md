@@ -20,6 +20,9 @@ Discord credentials, database, host sensor mounts or persistent volume.
 | The home web service, tunnel or machine becomes unreachable | New visitors get the VPS page, with **Unavailable** for current measurements. |
 | One poll fails in an already-open dashboard | **Reconnecting…** with explicitly labelled last-recorded readings; a successful poll clears the warning. |
 | Two consecutive polls fail in an already-open dashboard | Current readings/sensors are hidden; previously loaded graphs remain explicitly historical. |
+| A response carries `X-Optimon-Fallback: 1` | The page can say **optiplex is currently unreachable**. |
+| The visitor cannot fetch readings, or an unmarked request fails | Neutral **Can’t load readings right now** wording; this does not establish that the home host is down. |
+| The home app responds but has no readable export yet | **No readings yet**, with automatic retries. |
 | The home service returns | The fallback checks every 30 seconds while visible and returns to `/` only after a fresh, real sample is available. |
 
 An unreachable service cannot prove the machine was powered off. No zero-valued
@@ -191,6 +194,11 @@ the second consecutive failure hides them. At the normal 30-second polling rate,
 this avoids treating a single slow response as a sustained outage. A new visitor
 has no prior reading and immediately gets the fallback page. The stateless Worker
 does not infer an outage duration from visitor traffic.
+The home-unreachable wording is reserved for responses marked by the Worker.
+Browser/network errors use neutral wording, and a reachable home app waiting for
+its first readable export keeps **No readings yet**. Each poll updates the reason;
+an earlier fallback response does not make a later visitor-connection failure a
+home outage.
 
 ```bash
 curl --fail --silent --show-error --head \

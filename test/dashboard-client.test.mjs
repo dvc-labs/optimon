@@ -225,7 +225,9 @@ test('repeated failures hide current readings, retain history and recover cleanl
   failed = true;
   await ui.poll();
   await ui.poll();
-  assert.equal(ui.document.body.dataset.state, 'offline');
+  assert.equal(ui.document.body.dataset.state, 'unavailable');
+  assert.equal(ui.element('verdict').textContent, 'Can’t load readings right now.');
+  assert.ok(!ui.element('detail').textContent.includes('home server is unreachable'));
   assert.equal(ui.element('current-readings').hidden, true);
   assert.equal(ui.element('temperature-readings').hidden, true);
   assert.equal(ui.element('offline-readings').hidden, false);
@@ -260,8 +262,65 @@ test('unreadable metrics display dashes while a measured zero remains a real rea
 
 test('a new visitor without any successful response immediately sees unavailable readings', async (t) => {
   const ui = await client(t, async () => Response.json({ data: null }, { status: 503 }));
-  assert.equal(ui.document.body.dataset.state, 'offline');
+  assert.equal(ui.document.body.dataset.state, 'unavailable');
+  assert.equal(ui.element('verdict').textContent, 'Can’t load readings right now.');
   assert.equal(ui.element('current-readings').hidden, true);
+  assert.ok(!ui.element('announce').textContent.includes('home server is unreachable'));
   assert.equal(ui.element('temperature-readings').hidden, true);
   assert.equal(ui.element('offline-readings').hidden, false);
+});
+
+test('a healthy home app waiting for its first export keeps the no-readings message across polls', async (t) => {
+  let payload = null;
+  const ui = await client(t, async (path) => {
+    if (!payload)
+      return Response.json(
+        { status: { state: 'unavailable' }, data: null },
+        { status: 503, headers: { 'X-Optimon-Origin': 'dashboard' } },
+      );
+    return Response.json(path === '/api/history' ? history(payload.data.generatedAt) : payload);
+  });
+  for (let i = 0; i < 3; i++) {
+    assert.equal(ui.document.body.dataset.state, 'unavailable');
+    assert.equal(ui.element('verdict').textContent, 'No readings yet.');
+    assert.match(ui.element('detail').textContent, /dashboard is responding/);
+    assert.equal(ui.element('current-readings').hidden, true);
+    await ui.poll();
+  }
+  payload = reading();
+  await ui.poll();
+  assert.equal(ui.document.body.dataset.state, 'live');
+  assert.equal(ui.element('current-readings').hidden, false);
+});
+
+test('only a fallback-marked response attributes an outage to home, and later network errors clear that claim', async (t) => {
+  const payload = reading();
+  let mode = 'live';
+  const ui = await client(t, async (path) => {
+    if (path === '/api/live') {
+      if (mode === 'network') throw new TypeError('Failed to fetch');
+      if (mode === 'fallback')
+        return Response.json(
+          { status: { state: 'unavailable' }, data: null },
+          { status: 503, headers: { 'X-Optimon-Fallback': '1' } },
+        );
+    }
+    return Response.json(path === '/api/history' ? history(payload.data.generatedAt) : payload);
+  });
+  mode = 'fallback';
+  await ui.poll();
+  assert.equal(ui.element('verdict').textContent, 'Reconnecting…');
+  await ui.poll();
+  assert.equal(ui.element('verdict').textContent, 'optiplex is currently unreachable.');
+  assert.match(ui.element('announce').textContent, /home server is unreachable/);
+  mode = 'network';
+  await ui.poll();
+  assert.equal(ui.element('verdict').textContent, 'Can’t load readings right now.');
+  assert.ok(!ui.element('announce').textContent.includes('home server is unreachable'));
+  assert.equal(ui.element('current-readings').hidden, true);
+  assert.ok(!ui.element('notice').textContent.includes('connection was lost'));
+  mode = 'live';
+  await ui.poll();
+  assert.equal(ui.document.body.dataset.state, 'live');
+  assert.equal(ui.element('current-readings').hidden, false);
 });

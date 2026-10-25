@@ -96,7 +96,8 @@ let requestId = 0;
 let inflight = null;
 let generation = 0;
 let pollTimer = 0;
-let originUnavailable = false;
+let readingsUnavailable = false;
+let failureReason = null; // 'fallback', 'waiting', or unknown; only the latest failed poll counts.
 
 // ---------------------------------------------------------------------------------------------
 // Status
@@ -105,7 +106,7 @@ let originUnavailable = false;
 function setState(state, message) {
   document.body.dataset.state = state;
   // Only a change between fresh and out-of-date is worth interrupting a screen reader for.
-  const states = ['live', 'stale', 'reconnecting', 'offline'];
+  const states = ['live', 'stale', 'reconnecting', 'offline', 'unavailable'];
   const flipped = states.includes(lastState) && state !== lastState;
   if (flipped && states.includes(state) && message) setText('announce', message);
   lastState = state;
@@ -119,30 +120,43 @@ function setNotice(message, demo = false) {
 }
 
 function renderStatus() {
-  $('current-readings').hidden = originUnavailable;
-  $('temperature-readings').hidden = originUnavailable;
-  $('offline-readings').hidden = !originUnavailable;
-  if (originUnavailable) {
-    setState('offline', 'The home server is unreachable.');
-    setText('verdict', 'optiplex is currently unreachable.');
-    setText(
-      'detail',
-      'The machine, the monitor or its connection may be unavailable. This page will reconnect automatically.',
-    );
+  $('current-readings').hidden = readingsUnavailable;
+  $('temperature-readings').hidden = readingsUnavailable;
+  $('offline-readings').hidden = !readingsUnavailable;
+  if (readingsUnavailable) {
+    if (failureReason === 'fallback') {
+      setState('offline', 'The home server is unreachable.');
+      setText('verdict', 'optiplex is currently unreachable.');
+      setText(
+        'detail',
+        'The machine, the monitor or its connection may be unavailable. This page will reconnect automatically.',
+      );
+    } else if (failureReason === 'waiting') {
+      setState('unavailable', 'Waiting for readable measurements.');
+      setText('verdict', live ? 'No fresh readings yet.' : 'No readings yet.');
+      setText(
+        'detail',
+        'The dashboard is responding, but no readable measurements are available yet. This page will keep trying.',
+      );
+    } else {
+      setState('unavailable', 'Readings cannot be loaded right now.');
+      setText('verdict', 'Can’t load readings right now.');
+      setText(
+        'detail',
+        'Your connection, the dashboard or the monitor may be unavailable. This page will keep trying.',
+      );
+    }
     setNotice(
-      live ? 'Any remaining readings and graphs are from before the connection was lost.' : null,
+      live
+        ? 'Any remaining graphs show previously recorded samples, not current measurements.'
+        : null,
     );
     return;
   }
   if (!live) {
     setState('unavailable');
-    setText('verdict', failures ? 'No readings yet.' : 'optimon');
-    setText(
-      'detail',
-      failures
-        ? "The monitor hasn't published anything this page can read, or the connection is down. It will keep trying."
-        : 'Loading the latest reading.',
-    );
+    setText('verdict', 'optimon');
+    setText('detail', 'Loading the latest reading.');
     setNotice(null);
     return;
   }
@@ -749,6 +763,17 @@ dialog.addEventListener('click', (event) => {
 // Loading
 // ---------------------------------------------------------------------------------------------
 
+class ResponseError extends Error {
+  constructor(response) {
+    super(`HTTP ${response.status}`);
+    this.reason = isFallbackResponse(response)
+      ? 'fallback'
+      : response.status === 503 && response.headers.get('X-Optimon-Origin') === 'dashboard'
+        ? 'waiting'
+        : null;
+  }
+}
+
 async function request(path, signal, options = {}) {
   const response = await fetch(path, {
     signal,
@@ -757,7 +782,7 @@ async function request(path, signal, options = {}) {
     ...options,
   });
   if (!response.ok || (path === '/api/live' && isFallbackResponse(response)))
-    throw new Error(`HTTP ${response.status}`);
+    throw new ResponseError(response);
   return response;
 }
 
@@ -794,16 +819,19 @@ async function poll() {
       preview: response.headers.get('X-Optimon-Preview') === 'sample-data',
     };
     failures = 0;
-    originUnavailable = false;
+    readingsUnavailable = false;
+    failureReason = null;
     renderLive();
     renderStatus();
     await syncHistory(controller.signal);
     if (id === requestId) renderHistoryText();
-  } catch {
+  } catch (error) {
     if (id !== requestId || document.hidden) return;
     failures++;
+    // A browser/network/parse failure cannot establish that the home origin is unreachable.
+    failureReason = error instanceof ResponseError ? error.reason : null;
     // One slow response must not hide a previously loaded reading. Label it during the retry.
-    originUnavailable = !live || failures >= 2;
+    readingsUnavailable = !live || failures >= 2;
     renderStatus();
   } finally {
     clearTimeout(timeout);
