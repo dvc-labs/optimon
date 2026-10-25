@@ -90,7 +90,9 @@ Metrics remain indefinite. The legacy JSON reader stays available for skipped up
 In the bot container terminal, run `npm run backup` before R2/volume backups. It
 validates the snapshot and keeps `optiplex.backup.sqlite` plus one verified previous
 generation. Check a file with `npm run backup -- --verify /app/data/optiplex.backup.sqlite`.
-See [backup and restore instructions](BACKUPS.md), including stopping the bot and
+
+> [!NOTE]
+> See [backup and restore instructions](BACKUPS.md), including stopping the bot and
 removing stale live WAL/SHM files safely before a restore. Same-volume copies do
 not protect against SSD failure. Older R2 backups keep audit IDs until they expire.
 
@@ -123,7 +125,7 @@ Run `npm ci --ignore-scripts --engine-strict`, `npm run check`, `npm run lint`,
 
 ---
 
-**AI-assisted development.** This project is developed with AI assistance: code, tests and
+> **AI-assisted development.** This project is developed with AI assistance: code, tests and
 documentation are written with AI tools, including Claude (Anthropic) through Claude Code,
 working with the maintainer. The maintainer sets the direction and decides what is merged,
 and every change runs through the same automated checks in CI (type checking, lint,
