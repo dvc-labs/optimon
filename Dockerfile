@@ -29,7 +29,7 @@ FROM node:24.22.1-bookworm-slim AS dashboard
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./package.json
-COPY --from=build --chown=node:node /app/dist/dashboard.js /app/dist/dashboard-config.js /app/dist/dashboard-server.js /app/dist/dashboard-data.js /app/dist/dashboard-healthcheck.js ./dist/
+COPY --from=build --chown=node:node /app/dist/dashboard.js /app/dist/dashboard-config.js /app/dist/dashboard-server.js /app/dist/dashboard-assets.js /app/dist/dashboard-data.js /app/dist/dashboard-healthcheck.js ./dist/
 COPY --chown=node:node web ./web
 RUN mkdir -p /app/public-data /app/tls \
     && chown node:node /app/public-data && chmod 0750 /app/public-data
@@ -37,6 +37,19 @@ USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD ["node", "dist/dashboard-healthcheck.js"]
 CMD ["node", "dist/dashboard.js"]
+
+# Static, public fallback for a separate VPS resource. It has no metric/archive volume.
+FROM node:24.22.1-bookworm-slim AS fallback
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/dist/fallback.js /app/dist/fallback-server.js /app/dist/fallback-healthcheck.js /app/dist/dashboard-assets.js /app/dist/dashboard-config.js ./dist/
+COPY --chown=node:node web ./web
+COPY --chown=node:node fallback ./fallback
+USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["node", "dist/fallback-healthcheck.js"]
+CMD ["node", "dist/fallback.js"]
 
 # A plain docker build still produces the bot, as before.
 FROM runtime AS bot

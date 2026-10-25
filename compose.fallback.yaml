@@ -1,0 +1,32 @@
+# A SEPARATE Coolify resource on the VPS. Never load this on the optiplex resource.
+services:
+  fallback:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: fallback
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    environment:
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the primary HTTPS dashboard URL in Coolify}
+      FALLBACK_BIND: 0.0.0.0
+      FALLBACK_PORT: "8080"
+      NODE_OPTIONS: --max-old-space-size=32
+    expose:
+      - "8080"
+    # No published host port, host reads, volumes, Discord secrets or private database.
+    # Coolify's existing VPS proxy supplies public HTTPS for the fallback hostname.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

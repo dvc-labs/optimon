@@ -16,6 +16,7 @@ import {
   timeTicks,
   valueScale,
 } from './chart-model.js?v=__ASSET_VERSION__';
+import { isFallbackResponse } from './availability.js?v=__ASSET_VERSION__';
 
 const POLL_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -94,6 +95,7 @@ let requestId = 0;
 let inflight = null;
 let generation = 0;
 let pollTimer = 0;
+let originUnavailable = false;
 
 // ---------------------------------------------------------------------------------------------
 // Status
@@ -102,8 +104,9 @@ let pollTimer = 0;
 function setState(state, message) {
   document.body.dataset.state = state;
   // Only a change between fresh and out-of-date is worth interrupting a screen reader for.
-  const flipped = (lastState === 'live' || lastState === 'stale') && state !== lastState;
-  if (flipped && (state === 'live' || state === 'stale') && message) setText('announce', message);
+  const states = ['live', 'stale', 'offline'];
+  const flipped = states.includes(lastState) && state !== lastState;
+  if (flipped && states.includes(state) && message) setText('announce', message);
   lastState = state;
 }
 
@@ -115,6 +118,21 @@ function setNotice(message, demo = false) {
 }
 
 function renderStatus() {
+  $('current-readings').hidden = originUnavailable;
+  $('temperature-readings').hidden = originUnavailable;
+  $('offline-readings').hidden = !originUnavailable;
+  if (originUnavailable) {
+    setState('offline', 'The home server is unreachable.');
+    setText('verdict', 'optiplex is currently unreachable.');
+    setText(
+      'detail',
+      'The machine, the monitor or its connection may be unavailable. This page will reconnect automatically.',
+    );
+    setNotice(
+      live ? 'Any remaining readings and graphs are from before the connection was lost.' : null,
+    );
+    return;
+  }
   if (!live) {
     setState('unavailable');
     setText('verdict', failures ? 'No readings yet.' : 'optimon');
@@ -128,6 +146,12 @@ function renderStatus() {
     return;
   }
   const f = freshness(live.status, live.receivedAt, performance.now());
+  $('reading-age').hidden = f.state !== 'stale';
+  if (f.state === 'stale')
+    setText(
+      'reading-age',
+      `Last recorded readings, received ${describeAge(f.age)}. These are not current measurements.`,
+    );
   if (f.state === 'stale') {
     setState('stale', 'These readings are out of date.');
     setText('verdict', 'No fresh readings.');
@@ -724,6 +748,7 @@ async function request(path, signal, options = {}) {
     redirect: 'error',
     ...options,
   });
+  if (path === '/api/live') originUnavailable = isFallbackResponse(response);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response;
 }

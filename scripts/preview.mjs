@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { createDashboard } from '../dist/dashboard-server.js';
 import { loadDashboardConfig } from '../dist/dashboard-config.js';
+import { createFallback, loadFallbackConfig } from '../dist/fallback-server.js';
 import { queryDashboard } from '../dist/dashboard-query.js';
 
 const { values } = parseArgs({
@@ -118,6 +119,9 @@ await update();
 const server = await createDashboard(
   loadDashboardConfig({ DASHBOARD_PORT: String(port), PUBLIC_DATA_PATH: directory }),
 );
+const fallback = await createFallback(loadFallbackConfig());
+const [fallbackApplication] = fallback.listeners('request');
+let homeAvailable = true;
 // A same-origin, development-only frame exercises actual mobile media queries.
 // The production server keeps frame-ancestors 'none' and has no preview routes.
 const ogCard = (await readFile(new URL('./og-card.html', import.meta.url), 'utf8')).replaceAll(
@@ -128,6 +132,13 @@ const [application] = server.listeners('request');
 server.removeAllListeners('request');
 server.on('request', (request, response) => {
   response.setHeader('X-Optimon-Preview', 'sample-data');
+  if (request.url?.startsWith('/__preview/control?')) {
+    const mode = new URL(request.url, 'http://localhost').searchParams.get('mode');
+    if (mode === 'offline' || mode === 'online') homeAvailable = mode === 'online';
+    response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    response.end(JSON.stringify({ preview: true, homeAvailable }));
+    return;
+  }
   if (request.url === '/__preview/og-card') {
     response.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -144,7 +155,7 @@ server.on('request', (request, response) => {
       'Cache-Control': 'no-store',
     });
     response.end(
-      `<!doctype html><html lang="en"><title>Optimon responsive preview</title><body style="margin:0;background:#171719;color:#e8e9eb;font:14px system-ui"><p style="text-align:center">LOCAL SAMPLE DATA · <a style="color:#26bcc5" href="/__preview?width=320">320px</a> · <a style="color:#26bcc5" href="/__preview?width=390">390px</a> · <a style="color:#26bcc5" href="/__preview?width=768">768px</a> · <a style="color:#26bcc5" href="/">Desktop</a></p><iframe title="Mobile dashboard" src="/" width="${size}" height="900" style="display:block;margin:auto;border:1px solid #444;height:calc(100vh - 65px)"></iframe></body></html>`,
+      `<!doctype html><html lang="en"><title>Optimon responsive preview</title><body style="margin:0;background:#171719;color:#e8e9eb;font:14px system-ui"><p style="text-align:center">LOCAL SAMPLE DATA · <a style="color:#26bcc5" href="/__preview?width=320">320px</a> · <a style="color:#26bcc5" href="/__preview?width=390">390px</a> · <a style="color:#26bcc5" href="/__preview?width=768">768px</a> · <a style="color:#26bcc5" href="/">Desktop</a></p><form action="/__preview/control" target="preview-control" style="text-align:center;margin:0 0 12px"><button name="mode" value="offline">Simulate home outage</button> <button name="mode" value="online">Restore sample readings</button></form><iframe name="preview-control" title="Preview control result" hidden></iframe><iframe title="Mobile dashboard" src="/" width="${size}" height="900" style="display:block;margin:auto;border:1px solid #444;height:calc(100vh - 100px)"></iframe></body></html>`,
     );
     return;
   }
@@ -158,7 +169,7 @@ server.on('request', (request, response) => {
         "frame-ancestors 'self'",
       ),
     });
-  application(request, response);
+  (homeAvailable ? application : fallbackApplication)(request, response);
 });
 server.listen(port, host, () =>
   console.log(

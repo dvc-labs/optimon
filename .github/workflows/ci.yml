@@ -31,6 +31,10 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm audit --audit-level=high
+      - name: Bundle the Worker without deploying or using credentials
+        run: npx --yes wrangler@4.152.0 deploy --dry-run --config deploy/wrangler.jsonc --outdir /tmp/optimon-worker
+        env:
+          WRANGLER_SEND_METRICS: 'false'
       - name: Validate Compose without production credentials
         run: docker compose -f compose.yaml config --quiet
         env:
@@ -97,3 +101,16 @@ jobs:
             --env PUBLIC_DATA_PATH=/app/public-data \
             --env NODE_OPTIONS=--max-old-space-size=64 \
             -i optimon-dashboard-ci node --input-type=module < test/dashboard-container.mjs
+      - name: Validate the separate VPS Compose definition
+        run: docker compose -f compose.fallback.yaml config --quiet
+        env:
+          DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
+      - name: Build the isolated VPS fallback image
+        run: docker build --target fallback --tag optimon-fallback-ci .
+      - name: Verify the fallback without metrics, secrets or a writable filesystem
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --memory 64m --cpus 0.25 --pids-limit 32 \
+            --env NODE_OPTIONS=--max-old-space-size=32 \
+            -i optimon-fallback-ci node --input-type=module < test/fallback-container.mjs
