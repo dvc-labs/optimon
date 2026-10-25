@@ -1,0 +1,141 @@
+/* The shared dashboard stylesheet owns the palette, fonts and dvc. wordmark. */
+.fallback-status {
+  padding-block: 4.5rem 3.5rem;
+}
+.eyebrow {
+  color: var(--quiet);
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9375rem;
+  margin-bottom: 1.5rem;
+}
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--warn);
+  border-radius: 50%;
+  flex: none;
+}
+.fallback-status h1 {
+  max-width: 15ch;
+  margin-bottom: 1.5rem;
+}
+.fallback-status .detail {
+  color: var(--ink);
+}
+.fallback-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+.retry-button {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  min-height: 2.75rem;
+  border: 1px solid var(--live);
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.retry-button:hover {
+  background: var(--wash);
+}
+.retry-button:disabled {
+  cursor: wait;
+  color: var(--quiet);
+  border-color: var(--rule);
+}
+#retry-status {
+  min-height: 1.5em;
+  margin-top: 0.875rem;
+}
+.fallback-readings {
+  padding-block: 1.5rem 2rem;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 3rem;
+}
+.fallback-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.fallback-section-head .fine {
+  margin: 0;
+}
+.offline-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+.offline-grid > div {
+  min-width: 0;
+}
+.offline-grid dt {
+  color: var(--quiet);
+  font-size: 0.9375rem;
+  margin-bottom: 0.375rem;
+}
+.offline-grid dd {
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.offline-grid .sample-note {
+  color: var(--quiet);
+  font-size: 0.875rem;
+  margin-top: 0.375rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.fallback-details h2 {
+  font-size: 1.1875rem;
+}
+.fallback-details p {
+  color: var(--quiet);
+  max-width: var(--measure);
+}
+@media (max-width: 639px) {
+  .fallback-status {
+    padding-block: 3rem;
+  }
+  .masthead {
+    flex-wrap: wrap;
+  }
+  .masthead .plain-link {
+    font-size: 0.875rem;
+  }
+  .offline-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+  }
+  .offline-grid > div {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 0.25rem 1rem;
+  }
+  .offline-grid dt {
+    margin: 0;
+  }
+  .offline-grid .sample-note {
+    grid-column: 1 / -1;
+    margin: 0;
+  }
+  .offline-grid > div + div {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+  }
+}

@@ -5,6 +5,7 @@ import {
   availableWindows,
   coverageSentence,
   defaultWindow,
+  describeAge,
   describeMachine,
   formatSpan,
   freshness,
@@ -16,6 +17,7 @@ import {
   timeTicks,
   valueScale,
 } from './chart-model.js?v=__ASSET_VERSION__';
+import { isFallbackResponse } from './availability.js?v=__ASSET_VERSION__';
 
 const POLL_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -94,6 +96,8 @@ let requestId = 0;
 let inflight = null;
 let generation = 0;
 let pollTimer = 0;
+let readingsUnavailable = false;
+let failureReason = null; // 'fallback', 'waiting', or unknown; only the latest failed poll counts.
 
 // ---------------------------------------------------------------------------------------------
 // Status
@@ -102,8 +106,9 @@ let pollTimer = 0;
 function setState(state, message) {
   document.body.dataset.state = state;
   // Only a change between fresh and out-of-date is worth interrupting a screen reader for.
-  const flipped = (lastState === 'live' || lastState === 'stale') && state !== lastState;
-  if (flipped && (state === 'live' || state === 'stale') && message) setText('announce', message);
+  const states = ['live', 'stale', 'reconnecting', 'offline', 'unavailable'];
+  const flipped = states.includes(lastState) && state !== lastState;
+  if (flipped && states.includes(state) && message) setText('announce', message);
   lastState = state;
 }
 
@@ -115,19 +120,53 @@ function setNotice(message, demo = false) {
 }
 
 function renderStatus() {
+  $('current-readings').hidden = readingsUnavailable;
+  $('temperature-readings').hidden = readingsUnavailable;
+  $('offline-readings').hidden = !readingsUnavailable;
+  if (readingsUnavailable) {
+    if (failureReason === 'fallback') {
+      setState('offline', 'The home server is unreachable.');
+      setText('verdict', 'optiplex is currently unreachable.');
+      setText(
+        'detail',
+        'The machine, the monitor or its connection may be unavailable. This page will reconnect automatically.',
+      );
+    } else if (failureReason === 'waiting') {
+      setState('unavailable', 'Waiting for readable measurements.');
+      setText('verdict', live ? 'No fresh readings yet.' : 'No readings yet.');
+      setText(
+        'detail',
+        'The dashboard is responding, but no readable measurements are available yet. This page will keep trying.',
+      );
+    } else {
+      setState('unavailable', 'Readings cannot be loaded right now.');
+      setText('verdict', 'Can’t load readings right now.');
+      setText(
+        'detail',
+        'Your connection, the dashboard or the monitor may be unavailable. This page will keep trying.',
+      );
+    }
+    setNotice(
+      live
+        ? 'Any remaining graphs show previously recorded samples, not current measurements.'
+        : null,
+    );
+    return;
+  }
   if (!live) {
     setState('unavailable');
-    setText('verdict', failures ? 'No readings yet.' : 'optimon');
-    setText(
-      'detail',
-      failures
-        ? "The monitor hasn't published anything this page can read, or the connection is down. It will keep trying."
-        : 'Loading the latest reading.',
-    );
+    setText('verdict', 'optimon');
+    setText('detail', 'Loading the latest reading.');
     setNotice(null);
     return;
   }
   const f = freshness(live.status, live.receivedAt, performance.now());
+  $('reading-age').hidden = f.state !== 'stale' && !failures;
+  if (f.state === 'stale' || failures)
+    setText(
+      'reading-age',
+      `Last recorded readings, received ${describeAge(f.age)}. These are not current measurements.`,
+    );
   if (f.state === 'stale') {
     setState('stale', 'These readings are out of date.');
     setText('verdict', 'No fresh readings.');
@@ -135,13 +174,20 @@ function renderStatus() {
       'detail',
       `The last one arrived ${describeAge(f.age)}. The machine, the monitor or the connection may be down; this page can't tell which.`,
     );
+  } else if (failures) {
+    setState('reconnecting', 'The latest update could not be loaded. Reconnecting.');
+    setText('verdict', 'Reconnecting…');
+    setText(
+      'detail',
+      `Showing the last reading, received ${describeAge(f.age)}. Trying again shortly.`,
+    );
   } else {
     setState('live', 'Readings are current again.');
     const { verdict, detail } = describeMachine(live.data, f.age);
     setText('verdict', verdict);
     setText('detail', detail);
   }
-  if (failures >= 2 || !f.connected)
+  if (failures || !f.connected)
     setNotice(
       "The latest update couldn't be loaded. These are the last readings received; the page keeps trying.",
     );
@@ -717,6 +763,17 @@ dialog.addEventListener('click', (event) => {
 // Loading
 // ---------------------------------------------------------------------------------------------
 
+class ResponseError extends Error {
+  constructor(response) {
+    super(`HTTP ${response.status}`);
+    this.reason = isFallbackResponse(response)
+      ? 'fallback'
+      : response.status === 503 && response.headers.get('X-Optimon-Origin') === 'dashboard'
+        ? 'waiting'
+        : null;
+  }
+}
+
 async function request(path, signal, options = {}) {
   const response = await fetch(path, {
     signal,
@@ -724,7 +781,8 @@ async function request(path, signal, options = {}) {
     redirect: 'error',
     ...options,
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok || (path === '/api/live' && isFallbackResponse(response)))
+    throw new ResponseError(response);
   return response;
 }
 
@@ -761,13 +819,19 @@ async function poll() {
       preview: response.headers.get('X-Optimon-Preview') === 'sample-data',
     };
     failures = 0;
+    readingsUnavailable = false;
+    failureReason = null;
     renderLive();
     renderStatus();
     await syncHistory(controller.signal);
     if (id === requestId) renderHistoryText();
-  } catch {
+  } catch (error) {
     if (id !== requestId || document.hidden) return;
     failures++;
+    // A browser/network/parse failure cannot establish that the home origin is unreachable.
+    failureReason = error instanceof ResponseError ? error.reason : null;
+    // One slow response must not hide a previously loaded reading. Label it during the retry.
+    readingsUnavailable = !live || failures >= 2;
     renderStatus();
   } finally {
     clearTimeout(timeout);

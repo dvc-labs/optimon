@@ -22,6 +22,7 @@ Thumbs.db
 *.p12
 *.pfx
 .secrets/
+.wrangler/
 
 *.sqlite
 *.sqlite-wal

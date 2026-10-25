@@ -7,7 +7,9 @@ Keep changes small and explain the resulting behaviour in a pull request.
    Never reuse production credentials in CI or commit secrets.
 3. Run `npm test`, `npm run check`, `npm run lint` and `npm run format:check`.
    Use `npm run format` for Prettier formatting. Oxlint uses TypeScript 7 type-aware
-   promise rules; intentionally discarded promises still need a rejection handler. Add focused tests for changed parsing,
+   promise rules; intentionally discarded promises still need a rejection handler.
+   Browser/Worker code in `web/`, `fallback/` and `deploy/` also uses explicit `no-undef` checks.
+   Add focused tests for changed parsing,
    scheduling, delivery, thermal transitions or security behaviour. Test denied
    owner access, unavailable sensors and failed delivery without real Discord calls.
 4. For a release, update `package.json`, its lockfile and the README version.
@@ -58,8 +60,18 @@ independent of Discord credentials, SQLite and the private volume. New metrics
 need a conscious public-data decision. Preserve chart gaps, timestamp-based stale
 states, accessible controls and responsive layouts. Put chart arithmetic in
 `web/chart-model.js` (no DOM, so `node --test` covers it) and register any new file under
-`web/` in the asset map in `src/dashboard-server.ts`. Keep database work in the
+`web/` in the asset map in `src/dashboard-assets.ts`. Keep database work in the
 bounded read-only worker. The sample-data preview is development-only and clearly
 labelled; production images must not include it. Build with `npm run build` before
 `npm run dev`. Fonts are self-hosted from `web/fonts/`; do not add CDN scripts or fonts,
 analytics, cookies or a service worker.
+
+For public fallback changes, test primary failures and recovery, cold-start 503s,
+timeouts during response bodies, same-origin navigation and missing metric handling.
+Keep the VPS image free of private volumes and credentials. Use the shared public
+asset loader for branding. `npm test` covers the plain Worker module and the actual
+fallback browser module without Cloudflare credentials. CI also builds the VPS
+image and runs it with no network, no writable filesystem and a 64 MiB limit.
+The dashboard client tests execute the real browser entry module with a small DOM
+stub: keep coverage of new visitors with stale exports, clock-based ageing,
+temporary failed polls, offline transitions, history loading and recovery.

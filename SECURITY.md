@@ -123,3 +123,27 @@ repository. The dashboard process health check does not establish host health or
 automatically restart a hung process. Neither the home IP nor a Tailscale address
 belongs in dashboard DNS. A public web service still adds an application attack
 surface; isolation reduces impact rather than making it risk-free.
+
+## Optional public fallback
+
+The separate VPS resource in `compose.fallback.yaml` has no private database,
+metrics export, host mounts or bot environment. It uses the same public fonts and
+styles and exposes unavailable metrics as 503 JSON with `data: null`. It never
+samples the VPS as if it were optiplex, replicates an audit record or generates
+zero-valued measurements during an outage.
+
+An optional Worker Route sits in front of the existing home Tunnel CNAME. Its
+primary and fallback HTTPS origins are fixed operator configuration, not URLs
+chosen by visitors. Requests are limited to GET/HEAD and public paths, have bounded
+header/body deadlines and a 1 MiB response limit, do not follow upstream redirects and
+strip visitor Cookie/Authorization and response Set-Cookie headers. No per-request
+metrics storage, request logging or runtime secrets are added. An origin marker
+distinguishes normal cold-start API responses from tunnel failures; it is not an
+authentication mechanism. Both origins must remain trusted.
+
+Fallback HTML and API responses are not cached. A fallback API response cannot
+make old readings fresh; recovery requires the normal freshness state and schema.
+Previously loaded historical graphs can remain in the browser with an explicit
+outage notice. A new visitor cannot load the archive while the home host is off.
+If both origins or the Worker are unavailable, the fallback is not an availability
+guarantee. See [FALLBACK.md](FALLBACK.md) for separate deployment, tests and rollback.

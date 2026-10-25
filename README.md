@@ -16,6 +16,7 @@ directory that does not exist.
 - Optional owner controls with private replies. All embeds share the release footer.
 - Responsive dashboard with live readings, 1h–365d/all-time charts and social previews.
 - The public container reads only a metrics export, with no Discord secrets or private database.
+- Optional same-address VPS fallback when the home server is off; see [deployment steps](FALLBACK.md).
 
 ## Commands
 

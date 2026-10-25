@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>optimon: waiting for optiplex</title>
+    <meta
+      name="description"
+      content="The home server is currently unreachable. Optimon will reconnect when fresh readings return."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <link rel="canonical" href="__PUBLIC_URL__/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="dvc. labs" />
+    <meta property="og:title" content="optimon: waiting for optiplex" />
+    <meta
+      property="og:description"
+      content="The home server is taking a break, or its connection is unavailable. Live readings return when it reconnects."
+    />
+    <meta property="og:url" content="__PUBLIC_URL__/" />
+    <meta property="og:image" content="__PUBLIC_URL__/assets/preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="optimon: waiting for optiplex" />
+    <meta name="twitter:image" content="__PUBLIC_URL__/assets/preview.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="/assets/fonts/league-spartan-bold.woff2?v=__ASSET_VERSION__"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/fonts/ibm-plex-sans-latin-400-normal.woff2?v=__ASSET_VERSION__"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/assets/dashboard.css?v=__ASSET_VERSION__" />
+    <link rel="stylesheet" href="/fallback-assets/fallback.css?v=__ASSET_VERSION__" />
+    <script type="module" src="/fallback-assets/fallback.js?v=__ASSET_VERSION__"></script>
+  </head>
+  <body data-state="offline">
+    <a class="skip-link" href="#main">Skip to the status</a>
+    <header class="masthead">
+      <a class="wordmark" href="https://www.davevancauwenberghe.be" aria-label="dvc."
+        >dvc<span>.</span></a
+      >
+      <span class="site-name">optimon</span>
+      <a class="plain-link" href="https://github.com/dvc-labs/optimon">Source on GitHub</a>
+    </header>
+    <main id="main">
+      <section class="status fallback-status" aria-labelledby="verdict">
+        <p class="eyebrow">
+          <span class="status-dot" aria-hidden="true"></span> Home server unavailable
+        </p>
+        <h1 id="verdict">A little quiet<br />on the home front.</h1>
+        <p class="detail">optiplex is currently unreachable.</p>
+        <p class="intro">
+          It may be switched off, the monitor may have stopped, or the connection may be taking a
+          break. Fresh readings will return when it reconnects.
+        </p>
+        <div class="fallback-actions">
+          <button type="button" id="retry" class="retry-button" hidden>
+            Check again <span aria-hidden="true">↗</span>
+          </button>
+          <a class="plain-link" href="/" id="refresh">Refresh dashboard</a>
+        </div>
+        <p class="fine" id="retry-status" role="status" aria-live="polite">
+          You can refresh this page to check for new readings.
+        </p>
+        <noscript
+          ><p class="fine">
+            Automatic reconnection needs JavaScript. The refresh link works without it.
+          </p></noscript
+        >
+      </section>
+      <section class="fallback-readings" aria-labelledby="readings-title">
+        <div class="fallback-section-head">
+          <h2 id="readings-title">Current readings</h2>
+          <span class="fine">Waiting for the machine</span>
+        </div>
+        <dl class="offline-grid">
+          <div>
+            <dt>CPU</dt>
+            <dd>Unavailable</dd>
+            <dd class="sample-note">No fresh sample</dd>
+          </div>
+          <div>
+            <dt>Memory</dt>
+            <dd>Unavailable</dd>
+            <dd class="sample-note">No fresh sample</dd>
+          </div>
+          <div>
+            <dt>Temperature</dt>
+            <dd>Unavailable</dd>
+            <dd class="sample-note">No fresh sample</dd>
+          </div>
+        </dl>
+      </section>
+      <div class="lower fallback-details">
+        <section aria-labelledby="history-title">
+          <h2 id="history-title">A pause in the readings.</h2>
+          <p>
+            The archive stays on optiplex. There are no new measurements while the monitor is away,
+            and missing readings are never replaced with zeroes.
+          </p>
+        </section>
+        <section aria-labelledby="reconnect-title">
+          <h2 id="reconnect-title">Same place. Back soon.</h2>
+          <p>
+            This address stays the same. Once the home dashboard has fresh readings again, this page
+            will reconnect automatically.
+          </p>
+          <p class="fine">
+            An unavailable connection cannot tell us whether the machine is powered off.
+          </p>
+        </section>
+      </div>
+    </main>
+    <footer class="footer">
+      <span>optimon · waiting for optiplex</span
+      ><span class="footer-links"
+        ><button type="button" class="plain-link" id="privacy-open" hidden>Privacy</button
+        ><a class="plain-link" href="https://github.com/dvc-labs/optimon">GitHub</a></span
+      >
+    </footer>
+    <dialog id="privacy-dialog" aria-labelledby="privacy-title">
+      <div class="dialog-head">
+        <h2 id="privacy-title">Privacy</h2>
+        <button type="button" class="plain-link" id="privacy-close">Close</button>
+      </div>
+      <p>
+        This fallback page receives no host measurements, Discord IDs, command records or bot
+        credentials. The private archive stays on the home server.
+      </p>
+      <p>
+        There are no analytics, cookies, accounts or browser storage. Cloudflare delivers this page;
+        the hosting provider also processes connection information.
+      </p>
+      <p>
+        <a class="plain-link" href="https://www.cloudflare.com/privacypolicy/"
+          >Cloudflare's privacy policy</a
+        >
+      </p>
+    </dialog>
+  </body>
+</html>

@@ -16,6 +16,8 @@ scripts
 .idea
 .vscode
 .secrets
+.wrangler
+deploy
 *.pem
 *.key
 *.csr

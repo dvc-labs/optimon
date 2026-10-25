@@ -82,8 +82,9 @@
           browser.
         </p></noscript
       >
-      <section aria-labelledby="readings-title">
+      <section id="current-readings" aria-labelledby="readings-title">
         <h2 class="sr-only" id="readings-title">Current readings</h2>
+        <p class="notice" id="reading-age" hidden></p>
         <dl class="readings">
           <div class="reading" id="row-cpu">
             <dt>CPU</dt>
@@ -131,6 +132,10 @@
           </div>
         </dl>
       </section>
+      <p class="notice" id="offline-readings" hidden>
+        Current readings are unavailable. Any graphs below show previously recorded samples. New
+        readings will appear when the connection returns.
+      </p>
       <section class="trends" aria-labelledby="trends-title">
         <div class="trends-heading">
           <h2 id="trends-title">Recent trends</h2>
@@ -233,7 +238,7 @@
         </details>
       </section>
       <div class="lower">
-        <section aria-labelledby="sensors-title">
+        <section id="temperature-readings" aria-labelledby="sensors-title">
           <h2 id="sensors-title">Temperatures</h2>
           <table class="sensors">
             <caption class="sr-only">
