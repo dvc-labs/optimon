@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { access } from 'node:fs/promises';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { createFallback, loadFallbackConfig } from './dist/fallback-server.js';
 
 assert.equal(process.getuid(), 1000);
@@ -31,7 +32,16 @@ try {
   assert.equal((await response.json()).data, null);
   assert.equal((await fetch(base + '/healthz')).status, 200);
   assert.equal((await fetch(base + '/assets/fonts/league-spartan-bold.woff2')).status, 200);
-  console.log('VPS fallback: branding, absent metrics and isolated 64 MiB container passed.');
+  // Docker healthchecks launch a second Node process inside the same memory/PID cgroup.
+  const probe = spawn(process.execPath, ['dist/fallback-healthcheck.js'], {
+    env: { ...process.env, FALLBACK_PORT: String(server.address().port) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const [code] = await once(probe, 'exit');
+  assert.equal(code, 0, 'the real health probe must fit alongside the running server');
+  console.log(
+    'VPS fallback: branding, absent metrics, real health probe and isolated 64 MiB container passed.',
+  );
 } finally {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
