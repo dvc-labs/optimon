@@ -9,12 +9,6 @@
 
 A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.1.**
 
-**A note on names.** The project is called Optimon (it was Optiplex up to v0.3.0). `optiplex` is
-the Dell OptiPlex machine it watches, so the host name, the `optiplex` Compose service, the
-`optiplex.sqlite` database and backup files and the `/etc/optiplex-dashboard/tls` host path keep
-that name. Renaming them would point a running deployment at a volume, database or certificate
-directory that does not exist.
-
 - One embed when the bot connects, then host snapshots every **30 minutes**.
 - Live CPU, RAM, **swap**, uptime, load averages and Intel CPU temperatures.
 - **All metric history retained on disk**, comparisons, Discord latency checks and a playful server mood.
