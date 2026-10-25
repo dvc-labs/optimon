@@ -167,6 +167,36 @@ test('decoded upstream bytes are not returned with stale compression or length h
     assert.equal(response.headers.get(name), null);
 });
 
+test('HTTP redirects keep the configured origin for authority-like paths and preserve path/query', async () => {
+  const paths = [
+    '/',
+    '/api/live?view=current',
+    '//attacker.example/path',
+    '///attacker.example/path?next=https%3A%2F%2Fother.example',
+    '//user:password@attacker.example/path',
+    String.raw`/\attacker.example/path?view=current`,
+    '/safe/..//attacker.example/path',
+    '/%2f%2fattacker.example/path?view=current',
+  ];
+  for (const method of ['GET', 'HEAD']) {
+    for (const path of paths) {
+      const request = new Request(`http://dashboard.test${path}`, { method });
+      const incoming = new URL(request.url);
+      const response = await handleRequest(request, env, () => {
+        throw new Error('HTTP redirects must not fetch either origin');
+      });
+      assert.equal(response.status, 308, `${method} ${path}`);
+      const target = new URL(response.headers.get('location'));
+      assert.equal(target.origin, env.DASHBOARD_PUBLIC_URL, `${method} ${path}`);
+      assert.equal(target.pathname, incoming.pathname, `${method} ${path}`);
+      assert.equal(target.search, incoming.search, `${method} ${path}`);
+      assert.equal(target.username, '');
+      assert.equal(target.password, '');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+  }
+});
+
 test('gateway errors fall back at the same public URL and remove the home HTML validator', async () => {
   for (const status of [500, 502, 503, 504, 530]) {
     const calls = [];

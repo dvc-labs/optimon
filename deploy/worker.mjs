@@ -20,6 +20,14 @@ function origin(value) {
   return url.origin;
 }
 
+function urlAtOrigin(base, source) {
+  // A leading // is a path here, never a replacement authority from URL resolution.
+  const target = new URL(base);
+  target.pathname = source.pathname;
+  target.search = source.search;
+  return target;
+}
+
 function safeHeaders(request) {
   const headers = new Headers();
   headers.set('Accept-Encoding', 'identity');
@@ -161,7 +169,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     return new Response(null, {
       status: 308,
       headers: {
-        Location: new URL(url.pathname + url.search, primary).href,
+        Location: urlAtOrigin(primary, url).href,
         'Cache-Control': 'no-store',
       },
     });
@@ -189,7 +197,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     }
   }
   try {
-    const target = new URL(url.pathname + url.search, fallback);
+    const target = urlAtOrigin(fallback, url);
     // Discard validators from the home origin: its HTML ETag cannot suppress the fallback page.
     const response = await fetchOrigin(fetcher, request, target.href, FALLBACK_TIMEOUT_MS, false);
     if (
