@@ -1,5 +1,12 @@
 # Optimon
 
+[![CI](https://github.com/dvc-labs/optimon/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dvc-labs/optimon/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/package-json/v/dvc-labs/optimon)](package.json)
+[![License: MIT](https://img.shields.io/github/license/dvc-labs/optimon)](LICENSE)
+[![Node.js 24.x](https://img.shields.io/badge/node.js-24.x-339933?logo=nodedotjs&logoColor=white)](package.json)
+[![discord.js](https://img.shields.io/github/package-json/dependency-version/dvc-labs/optimon/discord.js?logo=discord&logoColor=white)](https://discord.js.org)
+[![TypeScript](https://img.shields.io/github/package-json/dependency-version/dvc-labs/optimon/dev/typescript?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+
 A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.1.**
 
 **A note on names.** The project is called Optimon (it was Optiplex up to v0.3.0). `optiplex` is
@@ -113,3 +120,11 @@ Local storage defaults to `./data/optiplex.sqlite`; override with an absolute
 both paths on `/app/data`. Data is excluded from Git and the Docker build context.
 Run `npm ci --ignore-scripts --engine-strict`, `npm run check`, `npm run lint`,
 `npm run format:check` and `npm test` on Node 24.22.1 or newer within the 24.x major.
+
+---
+
+**AI-assisted development.** This project is developed with AI assistance: code, tests and
+documentation are written with AI tools, including Claude (Anthropic) through Claude Code,
+working with the maintainer. The maintainer sets the direction and decides what is merged,
+and every change runs through the same automated checks in CI (type checking, lint,
+formatting and tests). If you find a mistake, please open an issue.
