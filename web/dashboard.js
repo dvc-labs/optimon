@@ -5,6 +5,7 @@ import {
   availableWindows,
   coverageSentence,
   defaultWindow,
+  describeAge,
   describeMachine,
   formatSpan,
   freshness,
@@ -104,7 +105,7 @@ let originUnavailable = false;
 function setState(state, message) {
   document.body.dataset.state = state;
   // Only a change between fresh and out-of-date is worth interrupting a screen reader for.
-  const states = ['live', 'stale', 'offline'];
+  const states = ['live', 'stale', 'reconnecting', 'offline'];
   const flipped = states.includes(lastState) && state !== lastState;
   if (flipped && states.includes(state) && message) setText('announce', message);
   lastState = state;
@@ -146,8 +147,8 @@ function renderStatus() {
     return;
   }
   const f = freshness(live.status, live.receivedAt, performance.now());
-  $('reading-age').hidden = f.state !== 'stale';
-  if (f.state === 'stale')
+  $('reading-age').hidden = f.state !== 'stale' && !failures;
+  if (f.state === 'stale' || failures)
     setText(
       'reading-age',
       `Last recorded readings, received ${describeAge(f.age)}. These are not current measurements.`,
@@ -159,13 +160,20 @@ function renderStatus() {
       'detail',
       `The last one arrived ${describeAge(f.age)}. The machine, the monitor or the connection may be down; this page can't tell which.`,
     );
+  } else if (failures) {
+    setState('reconnecting', 'The latest update could not be loaded. Reconnecting.');
+    setText('verdict', 'Reconnecting…');
+    setText(
+      'detail',
+      `Showing the last reading, received ${describeAge(f.age)}. Trying again shortly.`,
+    );
   } else {
     setState('live', 'Readings are current again.');
     const { verdict, detail } = describeMachine(live.data, f.age);
     setText('verdict', verdict);
     setText('detail', detail);
   }
-  if (failures >= 2 || !f.connected)
+  if (failures || !f.connected)
     setNotice(
       "The latest update couldn't be loaded. These are the last readings received; the page keeps trying.",
     );
@@ -748,8 +756,8 @@ async function request(path, signal, options = {}) {
     redirect: 'error',
     ...options,
   });
-  if (path === '/api/live') originUnavailable = isFallbackResponse(response);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok || (path === '/api/live' && isFallbackResponse(response)))
+    throw new Error(`HTTP ${response.status}`);
   return response;
 }
 
@@ -786,6 +794,7 @@ async function poll() {
       preview: response.headers.get('X-Optimon-Preview') === 'sample-data',
     };
     failures = 0;
+    originUnavailable = false;
     renderLive();
     renderStatus();
     await syncHistory(controller.signal);
@@ -793,6 +802,8 @@ async function poll() {
   } catch {
     if (id !== requestId || document.hidden) return;
     failures++;
+    // One slow response must not hide a previously loaded reading. Label it during the retry.
+    originUnavailable = !live || failures >= 2;
     renderStatus();
   } finally {
     clearTimeout(timeout);

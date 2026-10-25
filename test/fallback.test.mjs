@@ -230,6 +230,29 @@ test('a healthy home app waiting for its first export stays on its own dashboard
   assert.equal(isFallbackResponse(response), false);
 });
 
+test('public health fails during fallback while the separate backend stays healthy', async (t) => {
+  const base = await listen(t, await createFallback(loadFallbackConfig({ FALLBACK_PORT: '0' })));
+  const backend = await fetch(base + '/healthz');
+  assert.equal(backend.status, 200);
+  assert.deepEqual(await backend.json(), { ok: true, mode: 'fallback' });
+  for (const method of ['GET', 'HEAD']) {
+    const response = await handleRequest(get('/healthz', { method }), env, async (request) =>
+      new URL(request.url).hostname === 'dashboard.test'
+        ? new Response('down tunnel', { status: 530 })
+        : fetch(new Request(base + '/healthz', request)),
+    );
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('retry-after'), '30');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(isFallbackResponse(response), true);
+    if (method === 'GET') assert.deepEqual(await response.json(), { ok: false, mode: 'fallback' });
+    else assert.equal(await response.text(), '');
+  }
+  const online = await handleRequest(get('/healthz'), env, () => Response.json({ ok: true }));
+  assert.equal(online.status, 200);
+  assert.equal(isFallbackResponse(online), false);
+});
+
 test('connection failures, header timeouts and stalled response bodies are bounded', async () => {
   for (const failure of ['connection', 'headers', 'body', 'oversized']) {
     let calls = 0;

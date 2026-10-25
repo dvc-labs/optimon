@@ -18,7 +18,8 @@ Discord credentials, database, host sensor mounts or persistent volume.
 | Home dashboard and monitor are running | The normal dashboard and fresh measurements. |
 | The monitor stops but the home web container remains up | Existing values are labelled **Last recorded readings** after three minutes. |
 | The home web service, tunnel or machine becomes unreachable | New visitors get the VPS page, with **Unavailable** for current measurements. |
-| A normal dashboard was already open during the outage | Current readings/sensors are hidden; previously loaded graphs remain explicitly historical. |
+| One poll fails in an already-open dashboard | **Reconnecting…** with explicitly labelled last-recorded readings; a successful poll clears the warning. |
+| Two consecutive polls fail in an already-open dashboard | Current readings/sensors are hidden; previously loaded graphs remain explicitly historical. |
 | The home service returns | The fallback checks every 30 seconds while visible and returns to `/` only after a fresh, real sample is available. |
 
 An unreachable service cannot prove the machine was powered off. No zero-valued
@@ -44,13 +45,30 @@ loopback-only `127.0.0.1:3443` binding.
 
 In Cloudflare DNS for `davevancauwenberghe.be`, add:
 
+Keep the VPS address in the deployment-only environment variable `VPS_PUBLIC_IP`
+in your private, git-ignored `.env` file; `.env.example` provides an empty entry.
+Use the actual IPv4 address assigned by your VPS provider. In the DNS form, paste
+that variable's **value**, not the literal `$VPS_PUBLIC_IP`: Cloudflare's DNS UI does
+not expand shell variables. No IP address is needed in the Worker or container
+environment; requests use the backend hostname.
+
 | Type | Name | Target | Proxy |
 | --- | --- | --- | --- |
-| A | `dashboard-fallback` | `157.173.101.60` | Proxied (orange cloud) |
+| A | `dashboard-fallback` | Value of your private `VPS_PUBLIC_IP` | Proxied (orange cloud) |
 
 Keep the existing **dashboard CNAME pointing to the home tunnel UUID**. Do not add
 another A/CNAME for `dashboard`, change the home IP or duplicate its tunnel token
 on the VPS. The fallback hostname is the Worker's backend address.
+
+An environment variable avoids publishing the address in new source, but it does
+not make an IP a credential or erase it from earlier Git commits/DNS history.
+If the VPS should accept web traffic only through Cloudflare, allow Cloudflare's
+[current IPv4 and IPv6 ranges](https://www.cloudflare.com/ips/) and any required
+trusted sources on ports 80/443, then block other sources. Apply this to the VPS,
+including Docker-published traffic (a provider firewall is one option); ordinary
+UFW INPUT rules alone may not filter Docker's forwarding path. Check the existing
+Coolify sites, certificate renewal method and Tailscale management path before
+changing the shared VPS firewall. This PR does not change those rules.
 
 ## 3. Deploy the separate fallback resource on the VPS
 
@@ -138,6 +156,12 @@ stays on the home dashboard. Other origin 5xx/network errors use the fallback.
 Normal 404/429 responses pass through. Fallback-specific assets always come from
 the VPS, including while the home server is recovering.
 
+The compatibility date is pinned to `2026-08-06` and was exercised locally with
+`workerd 1.20261019.1` through Miniflare, including health GET/HEAD, fallback,
+recovery, 304 and redirect cases. It also fits the date limit reported by the
+earlier reviewer. A dry-run only bundles code; validate date changes in a real
+Workers runtime before deploying them.
+
 The Worker accepts public GET/HEAD routes only, does not follow upstream redirects,
 strips visitor cookies/Authorization from upstream requests and removes Set-Cookie
 from responses. Fallback documents and metric responses use `Cache-Control: no-store`;
@@ -161,18 +185,28 @@ sudo systemctl stop optiplex-dashboard-tunnel.service
 ```
 
 Open the primary dashboard in a **new tab**. It should show the branded unavailable
-page at the same address. In a tab that already had the normal dashboard open, the
-next poll hides current measurements and marks the remaining graphs as historical.
+page at the same address. In a tab that already had the normal dashboard open,
+the first failed poll labels cached readings and shows **Reconnecting…**;
+the second consecutive failure hides them. At the normal 30-second polling rate,
+this avoids treating a single slow response as a sustained outage. A new visitor
+has no prior reading and immediately gets the fallback page. The stateless Worker
+does not infer an outage duration from visitor traffic.
 
 ```bash
 curl --fail --silent --show-error --head \
   https://dashboard.davevancauwenberghe.be/
 curl --silent --show-error --include \
   https://dashboard.davevancauwenberghe.be/api/live
+curl --silent --show-error --include \
+  https://dashboard.davevancauwenberghe.be/healthz
 ```
 
 The page returns HTTP 200 with `X-Optimon-Fallback: 1`; the API returns HTTP 503,
-an unavailable status and `data: null`. Neither response invents a sensor reading.
+an unavailable status and `data: null`. The primary URL's `/healthz` returns **503**,
+`Retry-After: 30` and `{"ok":false,"mode":"fallback"}` during failover. A status-code
+uptime monitor should check this endpoint, not `/`: the branded page intentionally
+remains HTTP 200. The backend hostname's `/healthz` remains 200 so Coolify can tell
+that the fallback process itself is healthy. No response invents a sensor reading.
 
 Start the connector again on **optiplex**:
 
@@ -190,12 +224,31 @@ and check again when visible. No history is deleted by this test.
 - Keep the VPS fallback's Git source up to date alongside the home resource so its
   shared fonts/styles/scripts remain compatible. Rebuild to pick up Node image fixes.
 - The fallback has no data volume to back up. Keep backing up the real archive.
-- `/healthz` measures web-process health; use `/api/live` and its freshness state
-  when checking whether home monitoring is available. The existing external bot
-  heartbeat remains useful and independent of this page.
+- The primary hostname's `/healthz` detects an unreachable home web origin; the
+  backend hostname's `/healthz` measures only fallback-process health. A stopped
+  bot with a reachable web origin can still return 200, including a stale export
+  from `/api/live`. To detect that case, check `status.state` and `ageSeconds`, or
+  use the existing external bot heartbeat. A status-code-only root check is not
+  a monitor for the home server.
 - To undo failover, remove only the `dashboard.davevancauwenberghe.be/*` Worker route.
   The existing CNAME then continues directly to the original home tunnel. The VPS
   fallback resource and its dedicated DNS record can be removed afterwards.
+
+## Future downtime reporting
+
+Gaps between archived samples can estimate missing-monitoring intervals to about
+one sample, but they do not prove that the host was powered off. Comparing host
+uptime after recovery can suggest a reboot, not determine the full cause. An
+outage ledger would need a versioned transactional migration and backup validation
+updates; it is not part of this fallback change.
+
+Likewise, a trustworthy **last seen** time or **offline after ten minutes** label
+for new visitors needs an observer that runs while the home host is unreachable.
+The present fallback is intentionally stateless and does not invent that time.
+A VPS observer could retain only the timestamp of a fresh, real sample; it would
+need bounded requests, honest handling of unknown state after restart, and tests
+for stale exports and Discord/monitor outages. Those are separate features rather
+than fixes required for this deployment.
 
 ## References
 
@@ -203,3 +256,5 @@ and check again when visible. No history is deleted by this test.
 - [Handling origin fetch errors](https://developers.cloudflare.com/workers/observability/errors/)
 - [Coolify Docker Compose applications](https://coolify.io/docs/applications/builds/docker-compose)
 - [Coolify environment variable scopes](https://coolify.io/docs/applications/configuration/environment-variables)
+- [Restricting direct access to a Cloudflare origin](https://developers.cloudflare.com/fundamentals/concepts/cloudflare-ip-addresses/)
+- [Workers compatibility dates](https://developers.cloudflare.com/workers/configuration/compatibility-dates/)

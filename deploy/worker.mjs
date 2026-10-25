@@ -141,7 +141,7 @@ function terminal(request, status, text) {
       'X-Robots-Tag': 'noindex, nofollow, noarchive',
       'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
       ...(status === 405 ? { Allow: 'GET, HEAD' } : {}),
-      ...(status === 503 ? { 'X-Optimon-Fallback': '1' } : {}),
+      ...(status === 503 ? { 'X-Optimon-Fallback': '1', 'Retry-After': '30' } : {}),
     },
   });
 }
@@ -207,13 +207,27 @@ export async function handleRequest(request, env, fetcher = fetch) {
       throw new Error('FallbackUnavailable');
     const headers = new Headers(response.headers);
     headers.set('X-Optimon-Fallback', '1');
+    // The backend's /healthz measures the fallback process. At the public route it must
+    // signal that the HOME origin is unavailable, even though this process is healthy.
+    const failedHealth = url.pathname === '/healthz';
+    if (failedHealth) {
+      headers.set('Retry-After', '30');
+      headers.set('Content-Type', 'application/json; charset=utf-8');
+    }
     if (url.pathname === '/' || url.pathname === '/healthz' || API_PATHS.has(url.pathname))
       headers.set('Cache-Control', 'no-store');
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
+    return new Response(
+      failedHealth
+        ? request.method === 'HEAD'
+          ? null
+          : '{"ok":false,"mode":"fallback"}'
+        : response.body,
+      {
+        status: failedHealth ? 503 : response.status,
+        statusText: failedHealth ? 'Service Unavailable' : response.statusText,
+        headers,
+      },
+    );
   } catch {
     return terminal(request, 503, 'Optimon is temporarily unavailable. Please try again shortly.');
   }

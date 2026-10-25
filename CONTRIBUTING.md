@@ -7,7 +7,9 @@ Keep changes small and explain the resulting behaviour in a pull request.
    Never reuse production credentials in CI or commit secrets.
 3. Run `npm test`, `npm run check`, `npm run lint` and `npm run format:check`.
    Use `npm run format` for Prettier formatting. Oxlint uses TypeScript 7 type-aware
-   promise rules; intentionally discarded promises still need a rejection handler. Add focused tests for changed parsing,
+   promise rules; intentionally discarded promises still need a rejection handler.
+   Browser/Worker code in `web/`, `fallback/` and `deploy/` also uses explicit `no-undef` checks.
+   Add focused tests for changed parsing,
    scheduling, delivery, thermal transitions or security behaviour. Test denied
    owner access, unavailable sensors and failed delivery without real Discord calls.
 4. For a release, update `package.json`, its lockfile and the README version.
@@ -70,3 +72,6 @@ Keep the VPS image free of private volumes and credentials. Use the shared publi
 asset loader for branding. `npm test` covers the plain Worker module and the actual
 fallback browser module without Cloudflare credentials. CI also builds the VPS
 image and runs it with no network, no writable filesystem and a 64 MiB limit.
+The dashboard client tests execute the real browser entry module with a small DOM
+stub: keep coverage of new visitors with stale exports, clock-based ageing,
+temporary failed polls, offline transitions, history loading and recovery.
