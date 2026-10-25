@@ -37,8 +37,8 @@ existing `compose.yaml`, branch, credentials and local history volume. This adds
 the availability handling and an origin-identification header; there is no schema
 migration. Keep the existing home tunnel running.
 
-For `DASHBOARD_PUBLIC_URL=https://dashboard.davevancauwenberghe.be` and
-`DASHBOARD_TLS_HOST_PATH=/etc/optiplex-dashboard/tls`, enable **Available at Buildtime**
+For `DASHBOARD_PUBLIC_URL=` and
+`DASHBOARD_TLS_HOST_PATH=`, enable **Available at Buildtime**
 and **Available at Runtime** in Coolify. Compose evaluates these references while
 building as well as while starting the services. This is specific to these two
 non-secret settings. Keep the home resource's Domains fields empty and its
