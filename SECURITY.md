@@ -1,6 +1,6 @@
 # Security
 
-Security fixes target the latest release on `main`; the supported version is 0.2.x.
+Security fixes target the latest release on `main`; the supported version is 0.3.x.
 
 Report vulnerabilities privately using this repository's **Security → Report a
 vulnerability** option if enabled. Otherwise contact the repository owner through
@@ -113,13 +113,3 @@ start without an export. Browser requests are same-origin with no cookies,
 tracking or persistent visitor storage. Cloudflare processes network metadata as
 the delivery provider. Search noindex is a preference, not authentication.
 
-Compose serves verified origin HTTPS only on host loopback. Keep Coolify's public
-proxy/domain routing off for this resource and keep router/UFW inbound ports closed.
-Host-installed cloudflared provides the outbound tunnel. Its private token uses a
-root-owned file and systemd credentials; it receives only the public Origin CA
-roots, not the origin private key. Keep hostname/CA validation enabled. Certificate
-issuance, renewal and Cloudflare configuration are operator actions in
-[DASHBOARD.md](DASHBOARD.md). The dashboard process health check does not establish
-host health or automatically restart a hung process. Neither the home IP nor a
-Tailscale address belongs in dashboard DNS. A public web service still adds an
-application attack surface; isolation reduces impact rather than making it risk-free.
