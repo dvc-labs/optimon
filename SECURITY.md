@@ -132,6 +132,12 @@ styles and exposes unavailable metrics as 503 JSON with `data: null`. It never
 samples the VPS as if it were optiplex, replicates an audit record or generates
 zero-valued measurements during an outage.
 
+When the VPS already uses host Apache for HTTPS, the opt-in
+`compose.fallback.apache.yaml` publishes only `127.0.0.1:18080` for its reverse
+proxy. Keep Coolify Domains empty for that mode and retain verified public-origin
+HTTPS on Apache. Host certificates and private keys are never mounted into the
+fallback container. The default Coolify-proxy Compose mode has no host publication.
+
 An optional Worker Route sits in front of the existing home Tunnel CNAME. Its
 primary and fallback HTTPS origins are fixed operator configuration, not URLs
 chosen by visitors. Requests are limited to GET/HEAD and public paths, have bounded

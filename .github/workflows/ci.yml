@@ -101,8 +101,24 @@ jobs:
             --env PUBLIC_DATA_PATH=/app/public-data \
             --env NODE_OPTIONS=--max-old-space-size=64 \
             -i optimon-dashboard-ci node --input-type=module < test/dashboard-container.mjs
-      - name: Validate the separate VPS Compose definition
-        run: docker compose -f compose.fallback.yaml config --quiet
+      - name: Validate both VPS Compose modes and loopback-only Apache publication
+        run: |
+          docker compose -f compose.fallback.yaml config --format json > /tmp/optimon-fallback-proxy.json
+          docker compose -f compose.fallback.apache.yaml config --format json > /tmp/optimon-fallback-apache.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          proxy = json.loads(Path('/tmp/optimon-fallback-proxy.json').read_text())['services']['fallback']
+          apache = json.loads(Path('/tmp/optimon-fallback-apache.json').read_text())['services']['fallback']
+          ports = apache.pop('ports')
+          assert len(ports) == 1
+          port = ports[0]
+          assert port['host_ip'] == '127.0.0.1'
+          assert str(port['published']) == '18080'
+          assert port['target'] == 8080 and port['protocol'] == 'tcp'
+          assert apache == proxy, 'Both modes must keep the same image, isolation and resource limits'
+          print('Both VPS modes match; Apache publication is restricted to 127.0.0.1:18080.')
+          PY
         env:
           DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
       - name: Build the isolated VPS fallback image
