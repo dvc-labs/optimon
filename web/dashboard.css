@@ -548,6 +548,39 @@ dialog p + p {
 .trends {
   margin-block: 2.5rem 3.5rem;
 }
+.host-details {
+  margin-top: 1.5rem;
+}
+.host-details > summary {
+  cursor: pointer;
+  color: var(--quiet);
+}
+.availability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-block: 1.5rem;
+}
+.availability-grid dd {
+  margin: 0;
+}
+.availability-grid dd:not(.fine) {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--live);
+}
+.gap-list {
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.gap-list li + li {
+  margin-top: 0.75rem;
+}
+@media (max-width: 479px) {
+  .availability-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .trends-heading {
   display: flex;
   align-items: baseline;

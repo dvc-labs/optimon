@@ -1,3 +1,5 @@
+import type { MonitoringAvailability } from './availability.js';
+import type { CpuDetails, MemoryBreakdown } from './metrics.js';
 /** The only data contract allowed across the public/private container boundary. */
 export const PUBLIC_SCHEMA = 1;
 export const PUBLIC_FILE_LIMIT = 256 * 1024;
@@ -41,6 +43,7 @@ export interface PublicHistory {
   lastAt: number | null;
   totalSamples: number;
   windows: PublicWindow[];
+  availability: MonitoringAvailability | null;
 }
 interface PublicMemory {
   total: number;
@@ -64,6 +67,11 @@ export interface PublicData {
     swap: PublicMemory | null;
     load: number[] | null;
     temperatures: { label: string; celsius: number }[];
+    bootTime: number | null;
+    runnableTasks: number | null;
+    cpuDetails: CpuDetails | null;
+    memoryBreakdown: MemoryBreakdown | null;
+    disk: PublicMemory | null;
   };
   history: PublicHistory | null;
 }
@@ -101,6 +109,72 @@ function aggregate(value: unknown, min: number, max: number): PublicAggregate | 
     max: numeric(v.max, min, max),
   };
 }
+
+function availability(value: unknown): MonitoringAvailability | null {
+  if (value === undefined || value === null) return null;
+  const v = object(value);
+  if (!Array.isArray(v.windows) || v.windows.length !== 2) throw new Error('InvalidPublicData');
+  return {
+    generatedAt: numeric(v.generatedAt),
+    firstAt: nullable(v.firstAt),
+    lastAt: nullable(v.lastAt),
+    windows: v.windows.map((raw, i) => {
+      const w = object(raw);
+      if (w.days !== [7, 30][i] || !Array.isArray(w.recentGaps) || w.recentGaps.length > 5)
+        throw new Error('InvalidPublicData');
+      const observedMs = numeric(w.observedMs);
+      return {
+        days: numeric(w.days),
+        from: numeric(w.from),
+        to: numeric(w.to),
+        observedFrom: nullable(w.observedFrom),
+        observedMs,
+        coveredMs: numeric(w.coveredMs, 0, observedMs),
+        coveragePercent: nullable(w.coveragePercent, 0, 100),
+        gapCount: numeric(w.gapCount),
+        missingMs: numeric(w.missingMs, 0, observedMs),
+        recentGaps: w.recentGaps.map((rawGap) => {
+          const gap = object(rawGap);
+          return {
+            lastSeenAt: numeric(gap.lastSeenAt),
+            resumedAt: nullable(gap.resumedAt),
+            durationMs: numeric(gap.durationMs),
+          };
+        }),
+      };
+    }),
+  };
+}
+
+function cpuDetails(value: unknown): CpuDetails | null {
+  if (value === undefined || value === null) return null;
+  const v = object(value);
+  if (!Array.isArray(v.perCore) || v.perCore.length > 128) throw new Error('InvalidPublicData');
+  return {
+    iowaitPercent: nullable(v.iowaitPercent, 0, 100),
+    stealPercent: nullable(v.stealPercent, 0, 100),
+    perCore: v.perCore.map((raw) => {
+      const core = object(raw);
+      const id = numeric(core.id, 0, 4095);
+      if (!Number.isInteger(id)) throw new Error('InvalidPublicData');
+      return { id, percent: nullable(core.percent, 0, 100) };
+    }),
+  };
+}
+function breakdown(value: unknown): MemoryBreakdown | null {
+  if (value === undefined || value === null) return null;
+  const v = object(value);
+  return {
+    free: nullable(v.free),
+    cached: nullable(v.cached),
+    buffers: nullable(v.buffers),
+    slab: nullable(v.slab),
+    reclaimableSlab: nullable(v.reclaimableSlab),
+    unreclaimableSlab: nullable(v.unreclaimableSlab),
+    kernelStack: nullable(v.kernelStack),
+    pageTables: nullable(v.pageTables),
+  };
+}
 /** Reconstruct, never forward arbitrary properties from the writer or a future schema. */
 export function parsePublicHistory(value: unknown): PublicHistory {
   const v = object(value);
@@ -111,6 +185,7 @@ export function parsePublicHistory(value: unknown): PublicHistory {
     firstAt: nullable(v.firstAt),
     lastAt: nullable(v.lastAt),
     totalSamples: numeric(v.totalSamples),
+    availability: availability(v.availability),
     windows: v.windows.map((raw, index) => {
       const w = object(raw);
       if (
@@ -174,6 +249,11 @@ export function parsePublicData(value: unknown): PublicData {
           throw new Error('InvalidPublicData');
         return { label: t.label, celsius: numeric(t.celsius, -30, 150) };
       }),
+      bootTime: nullable(live.bootTime ?? null),
+      runnableTasks: nullable(live.runnableTasks ?? null),
+      cpuDetails: cpuDetails(live.cpuDetails),
+      memoryBreakdown: breakdown(live.memoryBreakdown),
+      disk: memory(live.disk ?? null),
     },
     history: v.history === null ? null : parsePublicHistory(v.history),
   };

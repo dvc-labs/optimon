@@ -41,6 +41,9 @@ function harness(settings = {}) {
     },
   };
   context.archive = {
+    availability: async () => ({
+      windows: [7, 30].map((days) => ({ days, coveragePercent: null, recentGaps: [] })),
+    }),
     summary: async (minutes) => historySummary({ minutes }),
     compare: async () => ({ current: historySummary(), previous: historySummary() }),
     recentCommands: () => [],
@@ -80,6 +83,7 @@ test('command registration exposes a bounded set of options and defaults owner c
       'about',
       'stats',
       'uptime',
+      'outages',
       'history',
       'compare',
       'ping',
@@ -136,7 +140,7 @@ test('registration retires only the old slash-command groups and is safe to repe
     },
     delete: async (id, guild) => {
       assert.equal(guild, guildId);
-      assert.equal(created.length, 13, 'register every replacement before retiring the old groups');
+      assert.equal(created.length, 14, 'register every replacement before retiring the old groups');
       deleted.push(id);
       registered.delete(id);
     },
@@ -146,7 +150,7 @@ test('registration retires only the old slash-command groups and is safe to repe
   assert.equal(registered.has('other'), true);
   assert.equal(registered.has('context'), true);
   await registerCommands(manager, guildId);
-  assert.equal(created.length, 26);
+  assert.equal(created.length, 28);
   assert.deepEqual(deleted, ['old-public', 'old-owner']);
 });
 
@@ -279,7 +283,7 @@ test('live stats acknowledge before collecting and commands do not add history s
 });
 
 test('about, help, history and Discord ping work without host readings', async () => {
-  for (const command of ['about', 'help', 'history', 'compare', 'ping']) {
+  for (const command of ['about', 'help', 'history', 'compare', 'outages', 'ping']) {
     const { context, interaction, events } = harness();
     const request = interaction(command);
     await handleCommand(request, context);

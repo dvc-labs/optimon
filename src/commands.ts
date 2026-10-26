@@ -17,6 +17,7 @@ import {
   pingEmbed,
   statsEmbed,
   uptimeEmbed,
+  outagesEmbed,
   vibeEmbed,
 } from './embeds.js';
 import type { MetricsCache } from './monitoring.js';
@@ -26,11 +27,14 @@ import type { HistoryReader } from './history-query.js';
 import type { CommandOutcome, TelemetryStore } from './telemetry.js';
 import type { ExternalHeartbeatStatus } from './heartbeat.js';
 import { auditEmbed, comparisonEmbed } from './embeds.js';
+import type { ExportStatus } from './dashboard-publisher.js';
+import type { ConnectionStatus } from './discord-connection.js';
 
 const PUBLIC_COMMANDS = [
   ['about', 'About the Optimon bot and its version.'],
   ['stats', 'Current host CPU, RAM, swap and temperatures.'],
   ['uptime', 'Host and bot uptimes, with estimated start times.'],
+  ['outages', 'Recent gaps in recorded monitoring, with 7/30-day coverage.'],
   ['history', 'Recorded CPU, RAM and temperature trends.'],
   ['compare', 'Compare two consecutive recorded time windows.'],
   ['ping', 'Measure this bot’s connection to Discord.'],
@@ -79,6 +83,13 @@ export function commandDefinitions(): SlashCommandBuilder[] {
           .setDescription('5–1440 minutes (default: 60).')
           .setMinValue(5)
           .setMaxValue(1440),
+      );
+    if (name === 'outages')
+      command.addIntegerOption((option) =>
+        option
+          .setName('days')
+          .setDescription('Window (default: 7 days).')
+          .addChoices({ name: '7 days', value: 7 }, { name: '30 days', value: 30 }),
       );
     if (name === 'audit')
       command.addIntegerOption((option) =>
@@ -134,8 +145,11 @@ export interface CommandContext {
   manualCooldown: Cooldown;
   gatewayPing: () => number;
   historyStorage: { status(): TelemetryStatus };
-  archive: Pick<HistoryReader, 'summary' | 'compare'> & Pick<TelemetryStore, 'recentCommands'>;
+  archive: Pick<HistoryReader, 'summary' | 'compare' | 'availability'> &
+    Pick<TelemetryStore, 'recentCommands'>;
   heartbeatStatus: () => ExternalHeartbeatStatus;
+  exportStatus?: () => ExportStatus | null;
+  connectionStatus?: () => ConnectionStatus | null;
   auditOutcome?: (outcome: CommandOutcome) => void;
 }
 
@@ -187,7 +201,7 @@ export async function handleCommand(
   };
   if (name === 'about') return edit(aboutEmbed(config, reports.status()));
   if (!admin) {
-    if (name === 'help') return edit(helpEmbed());
+    if (name === 'help') return edit(helpEmbed(config));
     if (name === 'ping') return edit(pingEmbed(context.gatewayPing(), acknowledgementMs));
     if (name === 'history')
       return edit(
@@ -201,9 +215,17 @@ export async function handleCommand(
           await context.archive.compare((interaction.options.getInteger('hours') ?? 24) * 60),
         ),
       );
+    if (name === 'outages') {
+      const availability = await context.archive.availability();
+      const days = interaction.options.getInteger('days') ?? 7;
+      const window = availability.windows.find((value) => value.days === days);
+      if (!window) throw new Error('Unsupported availability window.');
+      return edit(outagesEmbed(window));
+    }
     const snapshot = await cache.getSnapshot();
     if (name === 'stats') return edit(statsEmbed(snapshot, config));
-    if (name === 'uptime') return edit(uptimeEmbed(snapshot, config));
+    if (name === 'uptime')
+      return edit(uptimeEmbed(snapshot, config, await context.archive.availability()));
     if (name === 'vibe') return edit(vibeEmbed(snapshot));
   } else {
     if (name === 'audit')
@@ -239,6 +261,8 @@ export async function handleCommand(
           now: Date.now(),
           historyStorage: context.historyStorage.status(),
           heartbeat: context.heartbeatStatus(),
+          dashboard: context.exportStatus?.() ?? null,
+          connection: context.connectionStatus?.() ?? null,
         }),
       );
     }

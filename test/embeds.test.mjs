@@ -69,8 +69,53 @@ test('every embed has the release footer, a timestamp and Discord-valid field le
   }
 });
 
-test('uptime estimates keep host boot and bot start separate', () => {
+test('owner diagnostics distinguish live/history export failures and show Discord recovery counters', () => {
   const data = snapshot();
+  const at = data.capturedAt.getTime();
+  const result = diagnosticsEmbed(data, config(), {
+    rss: 1,
+    heapUsed: 1,
+    heapTotal: 2,
+    gatewayMs: 42,
+    now: at,
+    reports: {
+      pausedUntil: null,
+      lastReportAt: null,
+      failures: 4,
+      thermalFailures: 1,
+      diskFailures: 3,
+    },
+    historyStorage: telemetryStatus(),
+    dashboard: {
+      liveHealthy: true,
+      historyHealthy: false,
+      lastLiveAt: at,
+      lastHistoryAt: null,
+      liveFailures: 0,
+      historyFailures: 2,
+    },
+    connection: {
+      connected: true,
+      loginFailures: 2,
+      registrationFailures: 1,
+      reconnects: 3,
+      lastReadyAt: at,
+      lastDisconnectAt: at - 60_000,
+      lastResumeAt: at,
+    },
+  }).toJSON();
+  const field = (name) => result.fields.find((field) => field.name === name).value;
+  assert.match(
+    field('Dashboard exports'),
+    /Live: Healthy.*failures 0\n.*\nHistory: Failed.*failures 2/,
+  );
+  assert.match(field('Discord session'), /Login failures: 2.*setup failures: 1.*reconnects: 3/);
+  assert.match(field('Disk alerts'), /delivery failures 3/);
+  assert.ok(result.fields.length <= 25);
+});
+
+test('uptime estimates keep host boot and bot start separate', () => {
+  const data = snapshot({ bootTime: null });
   const result = uptimeEmbed(data, config()).toJSON();
   const field = (name) => result.fields.find((item) => item.name === name).value;
   assert.equal(field('Host uptime'), '1d 1h 0m');
@@ -84,7 +129,7 @@ test('uptime estimates keep host boot and bot start separate', () => {
     new RegExp(String(Math.floor(data.capturedAt.getTime() / 1000 - 30))),
   );
   assert.equal(
-    uptimeEmbed(snapshot({ hostUptime: null }), config())
+    uptimeEmbed(snapshot({ hostUptime: null, bootTime: null }), config())
       .toJSON()
       .fields.find((item) => item.name === 'Estimated host boot').value,
     'Unavailable',

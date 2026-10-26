@@ -3,12 +3,13 @@ import type { Config } from './config.js';
 
 export class BotReporter {
   constructor(
-    private readonly client: Pick<Client, 'channels'>,
+    private readonly client: Pick<Client, 'channels'> | (() => Pick<Client, 'channels'>),
     private readonly config: Pick<Config, 'channelId' | 'guildId'>,
   ) {}
 
   async send(embed: EmbedBuilder): Promise<void> {
-    const channel = await this.client.channels.fetch(this.config.channelId);
+    const client = typeof this.client === 'function' ? this.client() : this.client;
+    const channel = await client.channels.fetch(this.config.channelId);
     if (
       !channel ||
       channel.id !== this.config.channelId ||

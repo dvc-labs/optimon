@@ -226,12 +226,11 @@ export function summarySentence(metric, windowKey, aggregate, format) {
   return `${lead}, ${name} averaged ${mean}, peaked at ${peak} and never went below ${floor}.`;
 }
 
-export function coverageSentence(count, from, to, locale = 'en-GB') {
-  const expected = Math.max(1, Math.round((to - from) / SAMPLE_MS));
-  if (count >= expected * 0.995) return 'There is a reading for nearly every minute.';
-  const share = ((Math.min(count, expected) / expected) * 100).toFixed(1);
+/** A count alone cannot establish time coverage when the real sampling cadence drifts. */
+export function sampleCountSentence(count, locale = 'en-GB') {
+  if (!count) return 'No archived samples in this period.';
   const n = new Intl.NumberFormat(locale);
-  return `${share}% of the minutes in this period have a reading (${n.format(count)} of ${n.format(expected)}).`;
+  return `${n.format(count)} archived sample${count === 1 ? '' : 's'} in this period. Sampling is approximately once a minute; this count is not an uptime measurement.`;
 }
 
 // Plain status descriptions belong beside the chart model, so missing readings can be tested.

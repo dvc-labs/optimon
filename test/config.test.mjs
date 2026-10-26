@@ -127,3 +127,29 @@ test('public exports stay outside private data directories and are disabled for 
     '/app/public-data',
   );
 });
+
+test('optional disk and dashboard-link settings reject unsafe or ambiguous values', () => {
+  assert.equal(loadConfig(env).diskPath, null);
+  assert.equal(loadConfig(env).diskAlerts, true);
+  assert.equal(loadConfig(env).dashboardUrl, null);
+  assert.equal(loadConfig({ ...env, DISK_ALERTS_ENABLED: 'false' }).diskAlerts, false);
+  for (const path of ['/', 'relative/path'])
+    assert.throws(() => loadConfig({ ...env, HOST_DISK_PATH: path }), /HOST_DISK_PATH/);
+  assert.throws(() => loadConfig({ ...env, DISK_ALERTS_ENABLED: 'yes' }), /DISK_ALERTS_ENABLED/);
+  assert.equal(
+    loadConfig({ ...env, DASHBOARD_PUBLIC_URL: 'https://dashboard.test/' }).dashboardUrl,
+    'https://dashboard.test',
+  );
+  for (const url of [
+    'http://dashboard.test',
+    'https://private:secret@dashboard.test',
+    'https://dashboard.test/a',
+    'https://dashboard.test/?secret=value',
+  ]) {
+    assert.throws(
+      () => loadConfig({ ...env, DASHBOARD_PUBLIC_URL: url }),
+      (error) =>
+        error.message.includes('DASHBOARD_PUBLIC_URL') && !error.message.includes('secret'),
+    );
+  }
+});

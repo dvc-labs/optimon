@@ -3,7 +3,7 @@ import {
   SAMPLE_MS,
   WINDOWS,
   availableWindows,
-  coverageSentence,
+  sampleCountSentence,
   defaultWindow,
   describeAge,
   describeMachine,
@@ -250,6 +250,61 @@ function renderLive() {
         ? 'No swap space is set up.'
         : `${loose.format(swap.percent)}% of ${one.format(gib(swap.total))} GiB`,
   );
+  const disk = now.disk;
+  $('row-disk').hidden = !disk;
+  setValue('disk-value', disk ? one.format(gib(disk.used)) : null);
+  $('disk-bar').value = disk?.percent ?? 0;
+  setText(
+    'disk-context',
+    disk
+      ? `${loose.format(disk.percent)}% of usable root filesystem space; ${one.format(gib(disk.available))} GiB available. Reserved blocks are excluded from the percentage.`
+      : 'Not reported.',
+  );
+  const details = now.cpuDetails;
+  const percent = (v) => (v === null || v === undefined ? 'not reported' : `${one.format(v)}%`);
+  setText(
+    'cpu-detail-note',
+    details
+      ? `I/O wait ${percent(details.iowaitPercent)}. Steal ${percent(details.stealPercent)}. One-second samples, not interval averages.`
+      : 'CPU detail was not reported.',
+  );
+  const coreRows = $('cpu-core-rows');
+  coreRows.replaceChildren();
+  for (const core of details?.perCore ?? []) {
+    const row = document.createElement('tr');
+    const name = document.createElement('td');
+    name.textContent = `Core ${core.id}`;
+    const value = document.createElement('td');
+    value.textContent = percent(core.percent);
+    row.append(name, value);
+    coreRows.append(row);
+  }
+  setText(
+    'process-note',
+    `${now.runnableTasks === null || now.runnableTasks === undefined ? 'Runnable tasks not reported.' : `${whole.format(now.runnableTasks)} runnable tasks.`}${now.cores && now.load ? ` One-minute load per logical CPU: ${loose.format(now.load[0] / now.cores)}.` : ''}`,
+  );
+  const memoryRows = $('memory-detail-rows');
+  memoryRows.replaceChildren();
+  for (const [key, label] of [
+    ['free', 'Free'],
+    ['cached', 'Page cache'],
+    ['buffers', 'Buffers'],
+    ['slab', 'Slab'],
+    ['reclaimableSlab', 'Reclaimable slab'],
+    ['unreclaimableSlab', 'Unreclaimable slab'],
+    ['kernelStack', 'Kernel stacks'],
+    ['pageTables', 'Page tables'],
+  ]) {
+    const row = document.createElement('tr');
+    const name = document.createElement('td');
+    name.textContent = label;
+    const value = document.createElement('td');
+    const bytes = now.memoryBreakdown?.[key];
+    value.textContent =
+      bytes === null || bytes === undefined ? '–' : `${one.format(bytes / 1024 ** 2)} MiB`;
+    row.append(name, value);
+    memoryRows.append(row);
+  }
 
   const rows = [...now.temperatures].sort(
     (a, b) =>
@@ -294,6 +349,49 @@ function renderArchiveNote() {
       ? `optimon v${live.data.version}. ${whole.format(history.totalSamples)} readings since ${dateOnly.format(new Date(history.firstAt))}.`
       : `optimon v${live.data.version}`,
   );
+}
+
+function renderAvailability() {
+  const availability = history?.availability;
+  for (const days of [7, 30]) {
+    const period = availability?.windows.find((value) => value.days === days);
+    setText(
+      `availability-${days}`,
+      period?.coveragePercent === null || period?.coveragePercent === undefined
+        ? '–'
+        : `${one.format(period.coveragePercent)}%`,
+    );
+    setText(
+      `availability-${days}-note`,
+      period?.observedFrom === null || period?.observedFrom === undefined
+        ? 'No archived readings yet.'
+        : period.coveragePercent === null
+          ? 'First reading archived; waiting for elapsed monitoring time.'
+          : `${formatSpan(period.observedMs)} observed since ${shortStamp.format(period.observedFrom)}; about ${formatSpan(period.missingMs)} missing after the 90-second sample allowance. ${whole.format(period.gapCount)} gaps over 3.5 minutes.`,
+    );
+  }
+  setText(
+    'availability-updated',
+    availability
+      ? `Archive summary as of ${stamp.format(availability.generatedAt)}.`
+      : 'Availability will appear after a compatible history export.',
+  );
+  const list = $('gap-list');
+  list.replaceChildren();
+  const gaps = availability?.windows.find((value) => value.days === 30)?.recentGaps ?? [];
+  for (const gap of gaps) {
+    const item = document.createElement('li');
+    item.textContent = `Last reading ${stamp.format(gap.lastSeenAt)}; ${gap.resumedAt === null ? 'no newer sample at export time' : `next reading ${stamp.format(gap.resumedAt)}`}. About ${formatSpan(gap.durationMs)} missing within the window.`;
+    list.append(item);
+  }
+  if (!gaps.length) {
+    const item = document.createElement('li');
+    item.textContent =
+      availability?.firstAt === null || !availability
+        ? 'No recorded history yet.'
+        : 'No gaps over 3.5 minutes in the observed 30-day period.';
+    list.append(item);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -624,7 +722,7 @@ function renderHistoryText() {
     return;
   }
   setText('summary', summarySentence(metric, w.key, w[metric], spec.format));
-  const notes = [coverageSentence(w.count, w.from, w.to)];
+  const notes = [sampleCountSentence(w.count)];
   const slice = (w.to - w.from) / Math.max(1, w.points.length);
   if (slice > 1.5 * SAMPLE_MS)
     notes.push(
@@ -686,6 +784,7 @@ function syncControls() {
 
 function renderHistory() {
   renderArchiveNote();
+  renderAvailability();
   renderTrends();
   syncControls();
   renderChart();

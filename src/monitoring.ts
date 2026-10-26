@@ -62,3 +62,26 @@ export class ThermalWatch {
     this.coolSamples = 0;
   }
 }
+
+export const DISK_WARN_PERCENT = 90;
+export const DISK_RECOVER_PERCENT = 85;
+export class DiskWatch {
+  active = false;
+  private samples = 0;
+  private lastAt: number | null = null;
+  observe(snapshot: Snapshot): ThermalEvent | null {
+    const at = snapshot.capturedAt.getTime();
+    if (at === this.lastAt) return null;
+    if (this.lastAt !== null && (at < this.lastAt || at - this.lastAt > 150_000)) this.samples = 0;
+    this.lastAt = at;
+    const value = snapshot.disk?.percent ?? null;
+    const crossing =
+      value !== null && (this.active ? value <= DISK_RECOVER_PERCENT : value >= DISK_WARN_PERCENT);
+    this.samples = crossing ? Math.min(2, this.samples + 1) : 0;
+    return this.samples >= 2 ? (this.active ? 'recovered' : 'hot') : null;
+  }
+  confirm(event: ThermalEvent): void {
+    this.active = event === 'hot';
+    this.samples = 0;
+  }
+}

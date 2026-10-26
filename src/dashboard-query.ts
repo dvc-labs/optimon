@@ -6,6 +6,7 @@ import {
   type PublicHistory,
 } from './dashboard-data.js';
 import { roundMetric } from './history.js';
+import { queryAvailability } from './availability.js';
 
 /** Runs only in the existing read-only query worker, never on the Discord/HTTP event loop. */
 export function queryDashboard(db: DatabaseSync, now = Date.now()): PublicHistory {
@@ -31,6 +32,7 @@ export function queryDashboard(db: DatabaseSync, now = Date.now()): PublicHistor
     firstAt,
     lastAt: total.lastAt === null ? null : Number(total.lastAt),
     totalSamples: Number(total.n),
+    availability: queryAvailability(db, now),
     windows: DASHBOARD_WINDOWS.map(({ key, minutes }) => {
       const from = minutes ? Math.max(0, now - minutes * 60_000) : (firstAt ?? now);
       const to = now + 1;

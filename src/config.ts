@@ -16,6 +16,9 @@ export interface Config {
   databaseFile: string;
   heartbeatUrl: string | null;
   publicDataPath: string | null;
+  diskPath: string | null;
+  diskAlerts: boolean;
+  dashboardUrl: string | null;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -56,6 +59,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const alerts = env.THERMAL_ALERTS_ENABLED?.trim().toLowerCase() || 'true';
   if (alerts !== 'true' && alerts !== 'false') {
     throw new Error('THERMAL_ALERTS_ENABLED must be true or false.');
+  }
+  const diskAlerts = env.DISK_ALERTS_ENABLED?.trim().toLowerCase() || 'true';
+  if (diskAlerts !== 'true' && diskAlerts !== 'false')
+    throw new Error('DISK_ALERTS_ENABLED must be true or false.');
+  const diskPath = env.HOST_DISK_PATH?.trim() || null;
+  if (diskPath && (!isAbsolute(diskPath) || resolve(diskPath) === '/'))
+    throw new Error('HOST_DISK_PATH must name an absolute dedicated disk mount, not /.');
+  const dashboardUrl = env.DASHBOARD_PUBLIC_URL?.trim() || null;
+  if (dashboardUrl) {
+    try {
+      const url = new URL(dashboardUrl);
+      if (
+        url.protocol !== 'https:' ||
+        url.username ||
+        url.password ||
+        url.pathname !== '/' ||
+        url.search ||
+        url.hash
+      )
+        throw new Error();
+    } catch {
+      throw new Error(
+        'DASHBOARD_PUBLIC_URL must be an HTTPS origin without credentials, a path, query or fragment.',
+      );
+    }
   }
   const hostName = env.HOST_NAME?.trim() || 'optiplex';
   if (hostName.length > 64 || !/^[A-Za-z0-9 ._-]+$/.test(hostName)) {
@@ -113,5 +141,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseFile,
     heartbeatUrl,
     publicDataPath,
+    diskPath,
+    diskAlerts: diskAlerts === 'true',
+    dashboardUrl: dashboardUrl ? new URL(dashboardUrl).origin : null,
   };
 }

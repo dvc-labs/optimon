@@ -42,7 +42,7 @@ completion/error/close path. Terminate a retired worker before starting its
 replacement. Cache bounded results briefly, and keep the failed-write retry
 buffer capped. Show storage/delivery failures in owner diagnostics.
 
-Test post-ready sampling → alert → delivery, failure retries and shutdown ordering
+Test sampling before Discord readiness, login/setup retry cancellation, sampling → alert → delivery and shutdown ordering
 with injected Discord/heartbeat delivery, never real services. Test SIGKILL recovery,
 legacy migration, corrupt-data quarantine, audit authorization and outcomes, gaps
 and comparison boundaries, and consistent live SQLite backups. Reject corrupt
@@ -78,3 +78,14 @@ are placeholders; validate the host's filled-in configuration before reloading.
 The dashboard client tests execute the real browser entry module with a small DOM
 stub: keep coverage of new visitors with stale exports, clock-based ageing,
 temporary failed polls, offline transitions, history loading and recovery.
+
+Keep `compose.disk.yaml` aligned with the default home Compose file: only its empty
+read-only capacity mount and fixed container path differ. CI validates both modes
+and measures a real bind-mounted filesystem without privileges. Test reserved
+blocks, missing mounts, sustained alerts and failed delivery. Never substitute
+container filesystem statistics when the requested host mount is absent.
+Availability uses elapsed timestamp intervals with a 90-second sample allowance,
+not minute buckets or claimed host uptime/outage causes. Cover realistic 61–62-second
+cadence, clock-minute phases, window edges and the ongoing tail in regression tests.
+Keep those queries bounded in the existing read-only worker and preserve the
+schema/backup version when no stored representation changes.

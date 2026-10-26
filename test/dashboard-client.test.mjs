@@ -324,3 +324,96 @@ test('only a fallback-marked response attributes an outage to home, and later ne
   assert.equal(ui.document.body.dataset.state, 'live');
   assert.equal(ui.element('current-readings').hidden, false);
 });
+
+test('new live details preserve measured zero, unknown per-core values and optional disk visibility', async (t) => {
+  let payload = reading(0, {
+    cpuDetails: {
+      iowaitPercent: 0,
+      stealPercent: null,
+      perCore: [
+        { id: 0, percent: 0 },
+        { id: 1, percent: null },
+      ],
+    },
+    runnableTasks: 0,
+    memoryBreakdown: { free: 0 },
+    disk: { used: 0, available: 10 * 1024 ** 3, total: 10 * 1024 ** 3, percent: 0 },
+  });
+  const ui = await client(t, async (path) =>
+    Response.json(path === '/api/history' ? history(payload.data.generatedAt) : payload),
+  );
+  assert.equal(ui.element('row-disk').hidden, false);
+  assert.equal(ui.element('disk-value').textContent, '0.0');
+  assert.match(ui.element('cpu-detail-note').textContent, /I\/O wait 0.0%.*Steal not reported/);
+  const cores = ui.element('cpu-core-rows').children;
+  assert.equal(cores[0].children[1].textContent, '0.0%');
+  assert.equal(cores[1].children[1].textContent, 'not reported');
+  assert.match(ui.element('process-note').textContent, /^0 runnable tasks/);
+  assert.equal(ui.element('memory-detail-rows').children[0].children[1].textContent, '0.0 MiB');
+  payload = reading(0, { disk: null });
+  await ui.poll();
+  assert.equal(ui.element('row-disk').hidden, true);
+});
+
+test('availability renders observed coverage and dated monitoring gaps as historical data', async (t) => {
+  const payload = reading();
+  const at = payload.data.generatedAt;
+  const archive = history(at);
+  archive.availability = {
+    generatedAt: at,
+    firstAt: at - 3600_000,
+    lastAt: at,
+    windows: [7, 30].map((days) => ({
+      days,
+      observedFrom: at - 3600_000,
+      coveragePercent: 50,
+      observedMs: 60 * MINUTE,
+      coveredMs: 30 * MINUTE,
+      missingMs: 30 * MINUTE,
+      gapCount: 1,
+      recentGaps: [
+        { lastSeenAt: at - 3600_000, resumedAt: at - 30 * MINUTE, durationMs: 28.5 * MINUTE },
+      ],
+    })),
+  };
+  const ui = await client(t, async (path) =>
+    Response.json(path === '/api/history' ? archive : payload),
+  );
+  assert.equal(ui.element('availability-7').textContent, '50.0%');
+  assert.match(ui.element('availability-30-note').textContent, /1\sh 0\smin observed since/);
+  assert.match(ui.element('availability-30-note').textContent, /30\smin missing.*90-second/);
+  assert.doesNotMatch(ui.element('availability-30-note').textContent, /observed minutes|NaN/);
+  assert.match(ui.element('availability-updated').textContent, /^Archive summary as of/);
+  assert.match(ui.element('gap-list').children[0].textContent, /next reading.*29\smin missing/);
+});
+
+test('first archived reading waits for an elapsed interval without claiming missing history', async (t) => {
+  const payload = reading();
+  const at = payload.data.generatedAt;
+  const archive = history(at);
+  archive.availability = {
+    generatedAt: at,
+    firstAt: at,
+    lastAt: at,
+    windows: [7, 30].map((days) => ({
+      days,
+      observedFrom: at,
+      observedMs: 0,
+      coveredMs: 0,
+      missingMs: 0,
+      coveragePercent: null,
+      gapCount: 0,
+      recentGaps: [],
+    })),
+  };
+  const ui = await client(t, async (path) =>
+    Response.json(path === '/api/history' ? archive : payload),
+  );
+  assert.equal(ui.element('availability-7').textContent, '–');
+  assert.match(
+    ui.element('availability-7-note').textContent,
+    /waiting for elapsed monitoring time/,
+  );
+  assert.doesNotMatch(ui.element('availability-7-note').textContent, /No archived readings/);
+  assert.match(ui.element('chart-note').textContent, /archived samples.*not an uptime measurement/);
+});

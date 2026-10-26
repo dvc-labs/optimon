@@ -130,7 +130,49 @@
               <span id="swap-context"></span>
             </dd>
           </div>
+          <div class="reading" id="row-disk" hidden>
+            <dt>Disk</dt>
+            <dd class="value"><span id="disk-value">–</span><span class="unit">GiB</span></dd>
+            <dd class="context">
+              <progress
+                id="disk-bar"
+                value="0"
+                max="100"
+                aria-label="Root filesystem use"
+              ></progress>
+              <span id="disk-context"></span>
+            </dd>
+          </div>
         </dl>
+        <details class="host-details">
+          <summary>More host detail</summary>
+          <div class="lower">
+            <section aria-labelledby="cpu-detail-title">
+              <h2 id="cpu-detail-title">CPU detail</h2>
+              <p class="fine" id="cpu-detail-note">Waiting for readings.</p>
+              <table class="sensors">
+                <caption class="sr-only">
+                  Per-core CPU busy, one-second sample
+                </caption>
+                <tbody id="cpu-core-rows"></tbody>
+              </table>
+              <p class="fine" id="process-note"></p>
+            </section>
+            <section aria-labelledby="memory-detail-title">
+              <h2 id="memory-detail-title">Memory detail</h2>
+              <table class="sensors">
+                <caption class="sr-only">
+                  Host memory counters
+                </caption>
+                <tbody id="memory-detail-rows"></tbody>
+              </table>
+              <p class="fine">
+                Counters overlap: reclaimable slab is part of slab, and cache can be reused. These
+                are not separate slices to add together.
+              </p>
+            </section>
+          </div>
+        </details>
       </section>
       <p class="notice" id="offline-readings" hidden>
         Current readings are unavailable. Any graphs below show previously recorded samples. New
@@ -237,6 +279,50 @@
           </div>
         </details>
       </section>
+      <div class="lower">
+        <section aria-labelledby="availability-title">
+          <h2 id="availability-title">Monitoring availability</h2>
+          <p class="fine">
+            Estimated coverage of elapsed time since this archive began, allowing 90 seconds after
+            each sample for collection and timing drift. Missing monitoring is not proof that the
+            machine was powered off.
+          </p>
+          <dl class="availability-grid">
+            <div>
+              <dt>Last 7 days</dt>
+              <dd id="availability-7">–</dd>
+              <dd class="fine" id="availability-7-note">Waiting for history.</dd>
+            </div>
+            <div>
+              <dt>Last 30 days</dt>
+              <dd id="availability-30">–</dd>
+              <dd class="fine" id="availability-30-note">Waiting for history.</dd>
+            </div>
+          </dl>
+          <p class="fine" id="availability-updated"></p>
+          <details class="data-table">
+            <summary>Recent monitoring gaps</summary>
+            <p class="fine">
+              Gaps over 3.5 minutes; missing duration starts after the 90-second sample allowance.
+              Shorter delays beyond 90 seconds also reduce coverage. Boundaries are approximate.
+            </p>
+            <ul class="gap-list" id="gap-list">
+              <li>Waiting for history.</li>
+            </ul>
+          </details>
+        </section>
+        <section aria-labelledby="coverage-notes-title">
+          <h2 id="coverage-notes-title">What gaps mean</h2>
+          <p>
+            A gap may be a stopped monitor, a failed archive write, a reboot or a powered-off host.
+            The archive cannot tell which.
+          </p>
+          <p class="fine">
+            Discord connectivity does not pause sampling. These summaries describe the archive at
+            its last export; they are not an always-on outage observer.
+          </p>
+        </section>
+      </div>
       <div class="lower">
         <section id="temperature-readings" aria-labelledby="sensors-title">
           <h2 id="sensors-title">Temperatures</h2>

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { PublicHistory } from './dashboard-data.js';
+import type { MonitoringAvailability } from './availability.js';
 import {
   HISTORY_WINDOWS,
   historyGraph,
@@ -10,11 +11,13 @@ export interface HistoryComparison {
   current: HistorySummary;
   previous: HistorySummary;
 }
-export type QueryKind = 'summary' | 'compare' | 'dashboard';
-export type QueryResult = HistorySummary | HistoryComparison | PublicHistory;
+export type QueryKind = 'summary' | 'compare' | 'dashboard' | 'availability';
+export type QueryResult =
+  HistorySummary | HistoryComparison | PublicHistory | MonitoringAvailability;
 export interface HistoryReader {
   summary(minutes: number): Promise<HistorySummary>;
   compare(minutes: number): Promise<HistoryComparison>;
+  availability(): Promise<MonitoringAvailability>;
   close(): Promise<void>;
 }
 function namedError(name: string): Error {

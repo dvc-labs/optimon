@@ -33,12 +33,14 @@ services:
       HISTORY_FILE: /app/data/history.json
       DATABASE_FILE: /app/data/optiplex.sqlite
       PUBLIC_DATA_PATH: /app/public-data
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the HTTPS dashboard URL in Coolify}
+      DISK_ALERTS_ENABLED: ${DISK_ALERTS_ENABLED:-true}
       HEARTBEAT_URL: ${HEARTBEAT_URL:-}
       NODE_OPTIONS: --max-old-space-size=128
       TZ: Europe/Brussels
     # SQLite WAL and legacy history share the existing local writable volume.
     # Host counters and CPU sensors stay read-only.
-    # No host PID/network namespace, Docker socket, root filesystem or public ports.
+    # No host PID/network namespace, Docker socket, root directory mount or public ports.
     volumes:
       - type: volume
         source: history-data
