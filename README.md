@@ -75,7 +75,8 @@ These are periodic samples, not continuous measurements or interval averages.
 Sampling, SQLite writes and public exports begin **before Discord login**. Initial
 login and command-registration failures retry in-process with delays of 1, 2, 4,
 8, 16, 32 and then 60 seconds; established gateway reconnections remain managed by
-discord.js. Each failed initial login is retried with a fresh client, since the SDK destroys failed clients. Reports and alerts are sent only while Discord is ready. Setup failures
+discord.js. Unfinished setup keeps waiting across gateway disconnects and resumes
+even when the recovered session emits no new `ClientReady` event. Each failed initial login is retried with a fresh client, since the SDK destroys failed clients. Reports and alerts are sent only while Discord is ready. Setup failures
 do not stop monitoring. Disconnect/resume events use redacted structured logs.
 `/diagnostics` separates live/history export success times and failure counts. A
 failed first history read or file write retries on the next sample; the five-minute

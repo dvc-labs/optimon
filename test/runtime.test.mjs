@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { MessageFlags } from 'discord.js';
 import { ExternalHeartbeat } from '../dist/heartbeat.js';
 import { MonitorRuntime } from '../dist/runtime.js';
+import { DiscordConnection } from '../dist/discord-connection.js';
 import { TelemetryStore } from '../dist/telemetry.js';
 import { querySummary, queryComparison } from '../dist/history-query.js';
 import { queryAvailability } from '../dist/availability.js';
@@ -183,6 +184,54 @@ test('interactive cache refreshes cannot disguise a stalled background sampler a
   );
   await f.runtime.sample();
   assert.equal(f.runtime.healthy, true);
+});
+
+test('a resumed gateway completes interrupted registration and restores commands, reports and heartbeats', async (t) => {
+  let pings = 0;
+  const heartbeat = new ExternalHeartbeat('https://example.invalid/fixture', async () => {
+    pings++;
+    return new Response(null, { status: 200 });
+  });
+  const f = await fixture(t, { options: { heartbeat } });
+  let connected = true;
+  let registrations = 0;
+  let waits = 0;
+  f.gateway.isReady = () => connected;
+  f.gateway.register = async () => {
+    if (++registrations === 1) {
+      connected = false;
+      throw new Error('interrupted registration');
+    }
+  };
+  const connection = new DiscordConnection(
+    {
+      login: async () => {},
+      destroy: async () => {},
+      isReady: () => connected,
+      prepare: () => f.runtime.discordReady(),
+    },
+    () => {},
+    f.now,
+    async () => {
+      f.advance();
+      await f.jobs[0].task();
+      if (++waits === 2) {
+        connected = true;
+        connection.resumed(0, 0);
+      }
+    },
+  );
+  t.after(() => connection.stop());
+  await f.runtime.start();
+  await connection.ready();
+  assert.equal(registrations, 2);
+  assert.equal(f.telemetry.status().metricCount, 3, 'sampling continues across setup disconnects');
+  assert.equal(f.runtime.ready, true);
+  assert.equal(pings, 1);
+  assert.equal(f.sent.length, 1);
+  assert.equal(await f.runtime.dispatch(f.interaction('about')), true);
+  await f.jobs[1].task();
+  assert.equal(f.sent.length, 2, 'scheduled reports resume too');
 });
 
 test('disk delivery failures retry and alerts continue during a scheduled-report pause', async (t) => {

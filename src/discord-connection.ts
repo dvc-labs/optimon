@@ -124,17 +124,25 @@ export class DiscordConnection {
   }
   private async prepareLoop(): Promise<void> {
     let attempt = 0;
-    while (!this.abort.signal.aborted && this.adapter.isReady()) {
+    // A resumed session need not emit ClientReady again. Keep unfinished setup alive,
+    // but do no Discord work while disconnected and remain cancellable at shutdown.
+    while (!this.abort.signal.aborted) {
+      if (!this.adapter.isReady()) {
+        if (!(await this.retry(attempt++))) return;
+        continue;
+      }
       try {
         await this.adapter.prepare();
-        if (!this.abort.signal.aborted && this.adapter.isReady()) this.prepared = true;
-        return;
+        if (!this.abort.signal.aborted && this.adapter.isReady()) {
+          this.prepared = true;
+          return;
+        }
       } catch (error) {
         if (this.abort.signal.aborted) return;
         this.state.registrationFailures++;
         this.logger('discord_setup_failed', { ...safeError(error), attempt: attempt + 1 });
-        if (!(await this.retry(attempt++))) return;
       }
+      if (!(await this.retry(attempt++))) return;
     }
   }
   disconnected(code: number, shard: number): void {

@@ -104,21 +104,80 @@ test('shutdown cancels a pending retry without another login or an unhandled rej
   assert.equal(f.connection.status().connected, false);
 });
 
-test('disconnecting during setup does not permanently mark an unprepared session ready', async (t) => {
+test('a disconnect during setup recovers on session resume without another ready event', async (t) => {
   let connected = true;
   let setups = 0;
-  const f = fixture(t, {
-    isReady: () => connected,
-    prepare: async () => {
-      if (++setups === 1) connected = false;
+  const f = fixture(
+    t,
+    {
+      isReady: () => connected,
+      prepare: async () => {
+        if (++setups === 1) connected = false;
+      },
     },
-  });
-  await f.connection.ready();
-  assert.equal(f.connection.prepared, false);
-  connected = true;
+    async () => {
+      assert.equal(f.connection.prepared, false);
+      connected = true;
+      f.connection.resumed(0, 0);
+    },
+  );
   await f.connection.ready();
   assert.equal(setups, 2);
   assert.equal(f.connection.prepared, true);
+  assert.equal(f.logs.filter((entry) => entry.event === 'discord_ready').length, 1);
+});
+
+test('initial command setup survives an offline retry boundary and resumes without a new ClientReady', async (t) => {
+  let connected = true;
+  let attempts = 0;
+  const f = fixture(
+    t,
+    {
+      isReady: () => connected,
+      prepare: async () => {
+        if (++attempts === 1) {
+          connected = false;
+          throw new Error('gateway disconnected during registration');
+        }
+      },
+    },
+    async () => {
+      if (f.waits.length === 2) {
+        connected = true;
+        f.connection.resumed(0, 0);
+      }
+    },
+  );
+  await f.connection.ready();
+  assert.equal(attempts, 2);
+  assert.deepEqual(f.waits, [1000, 2000]);
+  assert.equal(
+    f.connection.status().registrationFailures,
+    1,
+    'waiting offline is not another setup failure',
+  );
+  assert.equal(f.connection.prepared, true);
+  await f.connection.ready();
+  assert.equal(attempts, 2, 'successful setup is still performed only once');
+});
+
+test('shutdown cancels unfinished setup while the gateway remains disconnected', async (t) => {
+  let entered;
+  const waiting = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const f = fixture(t, { isReady: () => false }, async (_, signal) => {
+    entered();
+    await new Promise((_, reject) =>
+      signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
+    );
+  });
+  const pending = f.connection.ready();
+  await waiting;
+  await f.connection.stop();
+  await pending;
+  assert.equal(f.connection.prepared, false);
+  assert.equal(f.counts().setups, 0);
 });
 
 test('a failed real discord.js client is replaced before retrying login, with no network calls', async (t) => {
