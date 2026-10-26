@@ -170,6 +170,21 @@ test('Discord unavailable at boot never blocks durable samples, public exports o
   assert.equal(f.sent.length, 1);
 });
 
+test('interactive cache refreshes cannot disguise a stalled background sampler as healthy', async (t) => {
+  const f = await fixture(t);
+  await boot(f);
+  assert.equal(f.runtime.healthy, true);
+  for (let i = 0; i < 3; i++) f.advance();
+  await f.runtime.cache.getSnapshot();
+  assert.equal(
+    f.runtime.healthy,
+    false,
+    'only a completed background sample renews sampling health',
+  );
+  await f.runtime.sample();
+  assert.equal(f.runtime.healthy, true);
+});
+
 test('disk delivery failures retry and alerts continue during a scheduled-report pause', async (t) => {
   let used = 92;
   const f = await fixture(t, {

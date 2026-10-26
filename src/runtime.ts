@@ -53,6 +53,7 @@ export class MonitorRuntime {
   private initialized = false;
   private discordInitialized = false;
   private firstSample: StartupContext | null = null;
+  private lastSampleAt: number | null = null;
   private readonly previousAt: number | null;
   private startup: Promise<void> | null = null;
   private discordStartup: Promise<void> | null = null;
@@ -109,7 +110,7 @@ export class MonitorRuntime {
   }
 
   get healthy(): boolean {
-    const age = this.cache.last ? this.now() - this.cache.last.capturedAt.getTime() : Infinity;
+    const age = this.lastSampleAt === null ? Infinity : this.now() - this.lastSampleAt;
     return this.initialized && !this.stopping && age >= -5000 && age < 150_000;
   }
 
@@ -268,6 +269,7 @@ export class MonitorRuntime {
     }
     await this.pingHeartbeat(snapshot);
     await exported;
+    this.lastSampleAt = snapshot.capturedAt.getTime();
   }
 
   private updateActivity(snapshot: Snapshot): void {
