@@ -57,7 +57,7 @@ all three public IDs are required explicitly; the Compose file has no personal I
 | `STATS_INTERVAL_MINUTES` | Defaults to `30`; allowed range `1`–`1440`. |
 | `THERMAL_ALERTS_ENABLED` | `true` by default; set `false` to disable thermal notices. |
 | `HEARTBEAT_URL` | Optional secret HTTPS ping URL; blank disables external monitoring. |
-| `DASHBOARD_PUBLIC_URL` | Optional HTTPS dashboard origin for links in `/about` and `/help`; required by the dashboard Compose service. |
+| `DASHBOARD_PUBLIC_URL` | HTTPS dashboard origin; required by both home Compose services, and used for `/about` and `/help` links. Optional only when running the bot outside Compose. |
 | `DISK_ALERTS_ENABLED` | `true` by default; alerts operate only when disk metrics are mounted/readable. |
 
 ## Sampling and alerts
@@ -87,15 +87,23 @@ history interval starts only after successful publication.
 `/outages` and `/uptime`, plus the dashboard, derive gaps from the existing timestamp
 archive in the read-only worker. No schema migration or new outage table is needed.
 A gap exceeds **210 seconds** between archived samples, or from the last sample to
-query time. Missing duration excludes the next expected one-minute interval and is
-clipped to the selected window; only the five most recent gaps are returned.
+query time. Missing duration begins **90 seconds** after the preceding sample and
+is clipped to the selected window; only the five most recent extended gaps are returned.
 
-Availability means **sample coverage**, not independently measured host uptime:
-distinct minute buckets with a sample, divided by elapsed minute buckets since the
-later of the window start and this archive's first reading. Earlier unobserved time
-is not declared downtime. All-null periodic samples still establish that monitoring
-ran; missing samples can also result from failed archive writes. Queries exclude
-future-dated rows. Clock corrections and sample timing limit accuracy.
+Availability means **estimated monitoring coverage**, not independently measured
+host uptime. It uses elapsed time since the later of the window start and the
+archive's first reading. Each sample covers up to the next **90 seconds**, allowing
+for the one-second CPU collection window and normal scheduler drift. Time beyond
+that allowance until the next sample (or query time for the ongoing tail) is missing.
+Coverage is `(observed time − missing time) / observed time`; a healthy 61–62-second
+cadence therefore stays at 100% regardless of its position within a clock minute.
+Shorter delays beyond 90 seconds reduce coverage even when they do not qualify for
+the separate list of gaps over 210 seconds. The first sample alone has no elapsed
+interval yet, so its percentage is unknown. Earlier unobserved time is not declared
+downtime. All-null periodic samples still establish that monitoring ran; missing
+samples can also result from failed archive writes. Queries exclude future-dated
+rows. Clock corrections and periodic sampling limit accuracy. Chart notes report
+raw sample counts without treating one sample as one minute of uptime.
 
 Startup compares the last archived timestamp with the first new sample and the
 current `/proc/stat` boot time. It can suggest a reboot during that interval or a

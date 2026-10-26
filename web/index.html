@@ -283,8 +283,9 @@
         <section aria-labelledby="availability-title">
           <h2 id="availability-title">Monitoring availability</h2>
           <p class="fine">
-            Minute buckets with a recorded sample, starting when this archive began. Missing
-            monitoring is not proof that the machine was powered off.
+            Estimated coverage of elapsed time since this archive began, allowing 90 seconds after
+            each sample for collection and timing drift. Missing monitoring is not proof that the
+            machine was powered off.
           </p>
           <dl class="availability-grid">
             <div>
@@ -302,8 +303,8 @@
           <details class="data-table">
             <summary>Recent monitoring gaps</summary>
             <p class="fine">
-              Gaps over 3.5 minutes; missing duration starts after the next expected sample.
-              Boundaries are approximate to one sample.
+              Gaps over 3.5 minutes; missing duration starts after the 90-second sample allowance.
+              Shorter delays beyond 90 seconds also reduce coverage. Boundaries are approximate.
             </p>
             <ul class="gap-list" id="gap-list">
               <li>Waiting for history.</li>

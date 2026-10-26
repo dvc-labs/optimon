@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { roundMetric } from './history.js';
-import { SAMPLE_INTERVAL_MS } from './monitoring.js';
 
+/** Includes collection time and normal scheduler jitter; does not imply continuous observation. */
+export const COVERAGE_GRACE_MS = 90_000;
 export const GAP_THRESHOLD_MS = 210_000;
 export const AVAILABILITY_DAYS = [7, 30] as const;
 export interface MonitoringGap {
@@ -14,8 +15,8 @@ export interface AvailabilityWindow {
   from: number;
   to: number;
   observedFrom: number | null;
-  recordedMinutes: number;
-  expectedMinutes: number;
+  observedMs: number;
+  coveredMs: number;
   coveragePercent: number | null;
   gapCount: number;
   missingMs: number;
@@ -44,42 +45,32 @@ export function queryAvailability(db: DatabaseSync, now = Date.now()): Monitorin
     windows: AVAILABILITY_DAYS.map((days) => {
       const from = Math.max(0, now - days * 86400_000);
       const observedFrom = firstAt === null ? null : Math.max(from, firstAt);
-      const expectedMinutes =
-        observedFrom === null
-          ? 0
-          : Math.floor(now / SAMPLE_INTERVAL_MS) -
-            Math.floor(observedFrom / SAMPLE_INTERVAL_MS) +
-            1;
-      const recordedMinutes =
-        observedFrom === null
-          ? 0
-          : Number(
-              db
-                .prepare(
-                  'SELECT COUNT(DISTINCT CAST(at / ? AS INTEGER)) AS n FROM metrics WHERE at>=? AND at<=?',
-                )
-                .get(SAMPLE_INTERVAL_MS, observedFrom, now)!.n,
-            );
+      const observedMs = observedFrom === null ? 0 : now - observedFrom;
       // Include the predecessor so a gap crossing the left edge is not silently lost.
       const cte = `WITH ordered AS (
         SELECT at, LEAD(at) OVER (ORDER BY at) AS next FROM metrics
         WHERE at >= COALESCE((SELECT MAX(at) FROM metrics WHERE at < ?), ?) AND at <= ?
-      ), gaps AS (
+      ), intervals AS (
         SELECT at AS lastSeenAt, next AS resumedAt,
-          MIN(COALESCE(next, ?), ?) - MAX(at + ?, ?) AS durationMs
-        FROM ordered WHERE COALESCE(next, ?) - at > ?
+          MAX(0, COALESCE(next, ?) - MAX(at + ?, ?)) AS durationMs,
+          COALESCE(next, ?) - at AS spacingMs
+        FROM ordered
       )`;
-      const args = [from, from, now, now, now, SAMPLE_INTERVAL_MS, from, now, GAP_THRESHOLD_MS];
+      const args = [from, from, now, now, COVERAGE_GRACE_MS, from, now];
       const totals = db
         .prepare(
-          `${cte} SELECT COUNT(*) AS n, COALESCE(SUM(durationMs), 0) AS missingMs FROM gaps WHERE durationMs>0`,
+          `${cte} SELECT COALESCE(SUM(CASE WHEN spacingMs>? THEN 1 ELSE 0 END), 0) AS n,
+            COALESCE(SUM(durationMs), 0) AS missingMs FROM intervals WHERE durationMs>0`,
         )
-        .get(...args)!;
+        .get(...args, GAP_THRESHOLD_MS)!;
+      const missingMs = Number(totals.missingMs);
+      const coveredMs = Math.max(0, observedMs - missingMs);
       const recentGaps = db
         .prepare(
-          `${cte} SELECT lastSeenAt, resumedAt, durationMs FROM gaps WHERE durationMs>0 ORDER BY lastSeenAt DESC LIMIT 5`,
+          `${cte} SELECT lastSeenAt, resumedAt, durationMs FROM intervals
+            WHERE durationMs>0 AND spacingMs>? ORDER BY lastSeenAt DESC LIMIT 5`,
         )
-        .all(...args)
+        .all(...args, GAP_THRESHOLD_MS)
         .map((row) => ({
           lastSeenAt: Number(row.lastSeenAt),
           resumedAt: row.resumedAt === null ? null : Number(row.resumedAt),
@@ -90,13 +81,11 @@ export function queryAvailability(db: DatabaseSync, now = Date.now()): Monitorin
         from,
         to: now,
         observedFrom,
-        recordedMinutes,
-        expectedMinutes,
-        coveragePercent: expectedMinutes
-          ? roundMetric(Math.min(100, (recordedMinutes / expectedMinutes) * 100))
-          : null,
+        observedMs,
+        coveredMs,
+        coveragePercent: observedMs ? roundMetric((coveredMs / observedMs) * 100) : null,
         gapCount: Number(totals.n),
-        missingMs: Number(totals.missingMs),
+        missingMs,
         recentGaps,
       };
     }),

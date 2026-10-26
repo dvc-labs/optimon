@@ -9,7 +9,7 @@ const {
   HOUR,
   MINUTE,
   availableWindows,
-  coverageSentence,
+  sampleCountSentence,
   defaultWindow,
   describeAge,
   describeMachine,
@@ -190,7 +190,7 @@ test('ages and spans read as plain English', () => {
   assert.equal(formatSpan(12 * MINUTE), '12 min');
 });
 
-test('summary and coverage sentences state what the numbers say', () => {
+test('summary and sample-count sentences do not infer uptime from a nominal cadence', () => {
   const format = (v) => `${v.toFixed(1)}%`;
   const aggregate = { count: 1440, min: 1.4, mean: 2.7, max: 27 };
   assert.equal(
@@ -206,11 +206,14 @@ test('summary and coverage sentences state what the numbers say', () => {
     'Over the last hour, the CPU ran at 2.7 °C on average, peaked at 27.0 °C and never cooled below 1.4 °C.',
   );
   assert.match(summarySentence('cpu', '7d', null, format), /no readings/);
-  assert.equal(coverageSentence(1440, 0, DAY), 'There is a reading for nearly every minute.');
-  assert.equal(
-    coverageSentence(1260, 0, DAY),
-    '87.5% of the minutes in this period have a reading (1,260 of 1,440).',
-  );
+  for (const count of [1260, 1404, 1440]) {
+    const text = sampleCountSentence(count);
+    assert.ok(text.startsWith(`${count.toLocaleString('en-GB')} archived samples`));
+    assert.match(text, /this count is not an uptime measurement/);
+    assert.doesNotMatch(text, /%|minutes in this period have/);
+  }
+  assert.match(sampleCountSentence(1), /^1 archived sample in/);
+  assert.equal(sampleCountSentence(0), 'No archived samples in this period.');
 });
 
 test('spring clock-change ticks are unique and ordered when a missing hour normalizes forward', () => {

@@ -84,6 +84,8 @@ read-only capacity mount and fixed container path differ. CI validates both mode
 and measures a real bind-mounted filesystem without privileges. Test reserved
 blocks, missing mounts, sustained alerts and failed delivery. Never substitute
 container filesystem statistics when the requested host mount is absent.
-Availability uses timestamp gaps and observed minute buckets, not claimed host
-uptime or outage causes. Keep those queries bounded in the existing read-only
-worker and preserve the schema/backup version when no stored representation changes.
+Availability uses elapsed timestamp intervals with a 90-second sample allowance,
+not minute buckets or claimed host uptime/outage causes. Cover realistic 61–62-second
+cadence, clock-minute phases, window edges and the ongoing tail in regression tests.
+Keep those queries bounded in the existing read-only worker and preserve the
+schema/backup version when no stored representation changes.

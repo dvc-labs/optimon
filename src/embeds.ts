@@ -277,10 +277,12 @@ export function uptimeEmbed(
 }
 
 function coverageDescription(window: AvailabilityWindow): string {
-  if (window.coveragePercent === null) return 'No archived readings yet.';
+  if (window.observedFrom === null) return 'No archived readings yet.';
+  if (window.coveragePercent === null)
+    return 'First reading archived; waiting for elapsed monitoring time.';
   return (
-    `**${window.coveragePercent.toFixed(1)}%** of observed minute buckets have a reading (${window.recordedMinutes}/${window.expectedMinutes}).\n` +
-    `Observed since ${timestamp(window.observedFrom!, 'F')}. ${window.gapCount} monitoring gaps over 3.5 minutes. This is sample coverage, not proven host uptime.`
+    `**${window.coveragePercent.toFixed(1)}%** estimated monitoring coverage over ${formatDuration(window.observedMs / 1000)}; about ${formatDuration(window.missingMs / 1000)} missing after a 90-second allowance per sample.\n` +
+    `Observed since ${timestamp(window.observedFrom, 'F')}. ${window.gapCount} monitoring gaps over 3.5 minutes. This is sample coverage, not proven host uptime.`
   );
 }
 export function outagesEmbed(window: AvailabilityWindow): EmbedBuilder {
@@ -300,7 +302,7 @@ export function outagesEmbed(window: AvailabilityWindow): EmbedBuilder {
   for (const gap of window.recentGaps)
     embed.addFields({
       name: gap.resumedAt === null ? 'No newer archived sample' : 'Monitoring resumed',
-      value: `Last sample: ${timestamp(gap.lastSeenAt, 'F')}\n${gap.resumedAt === null ? 'Still missing as of this query.' : `Next sample: ${timestamp(gap.resumedAt, 'F')}`}\nAbout ${formatDuration(gap.durationMs / 1000)} missing within this window, after the next expected sample.`,
+      value: `Last sample: ${timestamp(gap.lastSeenAt, 'F')}\n${gap.resumedAt === null ? 'Still missing as of this query.' : `Next sample: ${timestamp(gap.resumedAt, 'F')}`}\nAbout ${formatDuration(gap.durationMs / 1000)} missing within this window, after the 90-second sample allowance.`,
     });
   return embed;
 }

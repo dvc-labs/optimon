@@ -122,16 +122,17 @@ function availability(value: unknown): MonitoringAvailability | null {
       const w = object(raw);
       if (w.days !== [7, 30][i] || !Array.isArray(w.recentGaps) || w.recentGaps.length > 5)
         throw new Error('InvalidPublicData');
+      const observedMs = numeric(w.observedMs);
       return {
         days: numeric(w.days),
         from: numeric(w.from),
         to: numeric(w.to),
         observedFrom: nullable(w.observedFrom),
-        recordedMinutes: numeric(w.recordedMinutes),
-        expectedMinutes: numeric(w.expectedMinutes),
+        observedMs,
+        coveredMs: numeric(w.coveredMs, 0, observedMs),
         coveragePercent: nullable(w.coveragePercent, 0, 100),
         gapCount: numeric(w.gapCount),
-        missingMs: numeric(w.missingMs),
+        missingMs: numeric(w.missingMs, 0, observedMs),
         recentGaps: w.recentGaps.map((rawGap) => {
           const gap = object(rawGap);
           return {

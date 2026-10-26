@@ -3,7 +3,7 @@ import {
   SAMPLE_MS,
   WINDOWS,
   availableWindows,
-  coverageSentence,
+  sampleCountSentence,
   defaultWindow,
   describeAge,
   describeMachine,
@@ -365,7 +365,9 @@ function renderAvailability() {
       `availability-${days}-note`,
       period?.observedFrom === null || period?.observedFrom === undefined
         ? 'No archived readings yet.'
-        : `${whole.format(period.recordedMinutes)} of ${whole.format(period.expectedMinutes)} observed minutes, since ${shortStamp.format(period.observedFrom)}. ${whole.format(period.gapCount)} gaps over 3.5 minutes.`,
+        : period.coveragePercent === null
+          ? 'First reading archived; waiting for elapsed monitoring time.'
+          : `${formatSpan(period.observedMs)} observed since ${shortStamp.format(period.observedFrom)}; about ${formatSpan(period.missingMs)} missing after the 90-second sample allowance. ${whole.format(period.gapCount)} gaps over 3.5 minutes.`,
     );
   }
   setText(
@@ -720,7 +722,7 @@ function renderHistoryText() {
     return;
   }
   setText('summary', summarySentence(metric, w.key, w[metric], spec.format));
-  const notes = [coverageSentence(w.count, w.from, w.to)];
+  const notes = [sampleCountSentence(w.count)];
   const slice = (w.to - w.from) / Math.max(1, w.points.length);
   if (slice > 1.5 * SAMPLE_MS)
     notes.push(

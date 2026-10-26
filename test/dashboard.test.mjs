@@ -201,6 +201,36 @@ test('public history runs in the query worker and coalesces with a fixed cache e
   assert.equal(reader.pending.size, 0);
   assert.equal(reader.cache.size, 1);
 });
+
+test('drift-tolerant time coverage survives publication, validation and the public history API', async (t) => {
+  const f = await fixture(t);
+  const firstAt = f.now() - 100 * 61_500;
+  f.store.recordMetrics(
+    Array.from({ length: 101 }, (_, index) => ({
+      at: firstAt + index * 61_500,
+      cpu: null,
+      memory: null,
+      temperature: null,
+    })),
+  );
+  await f.publisher.publish(f.sample());
+  const { url } = await serve(t, f);
+  const response = await fetch(`${url}/api/history`);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  for (const window of result.availability.windows) {
+    assert.equal(window.coveragePercent, 100);
+    assert.equal(window.observedMs, f.now() - firstAt);
+    assert.equal(window.coveredMs, window.observedMs);
+    assert.equal(window.missingMs, 0);
+    assert.equal(window.gapCount, 0);
+    assert.equal(window.recordedMinutes, undefined);
+    assert.equal(window.expectedMinutes, undefined);
+  }
+  const all = result.windows.find((window) => window.key === 'all');
+  assert.equal(all.count, 101, 'all-null samples still establish that monitoring ran');
+  assert.equal(all.cpu, null, 'coverage never invents actual sensor measurements');
+});
 test('repeated history failures retry each sample and still publish current live readings', async (t) => {
   const f = await fixture(t);
   let calls = 0;
