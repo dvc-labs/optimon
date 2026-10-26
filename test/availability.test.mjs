@@ -22,7 +22,13 @@ test('regular cadence stays fully covered across minute phases, drift and query 
       const times = [];
       for (let at = start + phase; at <= now; at += spacing) times.push(at);
       const store = await archive(t, times);
-      for (const queryAt of [times.at(-1), times.at(-1) + spacing - 1]) {
+      // Exercise a young archive too: a minute-boundary phase error is much larger there.
+      for (const queryAt of [
+        times[3],
+        times[3] + spacing - 1,
+        times.at(-1),
+        times.at(-1) + spacing - 1,
+      ]) {
         for (const window of queryAvailability(store.db, queryAt).windows) {
           assert.equal(window.coveragePercent, 100, `${spacing} ms cadence, ${phase} ms phase`);
           assert.equal(window.gapCount, 0);
