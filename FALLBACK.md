@@ -32,7 +32,7 @@ visitor while that machine is off. It is not a backup or a second monitoring bot
 
 ## 1. Upgrade the existing home resource
 
-Merge this PR, then deploy the existing Optimon resource on **optiplex** using its
+Deploy the latest `main` to the existing Optimon resource on **optiplex** using its
 existing `compose.yaml`, branch, credentials and local history volume. This adds
 the availability handling and an origin-identification header; there is no schema
 migration. Keep the existing home tunnel running.
@@ -75,6 +75,19 @@ changing the shared VPS firewall. This PR does not change those rules.
 
 ## 3. Deploy the separate fallback resource on the VPS
 
+First identify the VPS's public web server:
+
+```bash
+sudo ss -lntp '( sport = :80 or sport = :443 )'
+```
+
+- If Coolify's Traefik/Caddy proxy handles those ports, use **A** below.
+- If `apache2` handles them, use **B**. Apache remains the public HTTPS server;
+  the fallback container gets a loopback-only backend port. Starting another
+  proxy on Apache's existing ports would conflict with the other VPS sites.
+
+### A. Coolify's public proxy
+
 In Coolify, create a **new Docker Compose application on the VPS**, using:
 
 | Setting | Value |
@@ -101,6 +114,95 @@ VPS applications. Keep Cloudflare SSL verification enabled with Full (strict).
 Ensure any hostname-specific rules permit the Worker to fetch the fallback site;
 an interactive browser challenge cannot be used on this backend hostname. Avoid
 changing protections for unrelated sites.
+
+Then continue to **Verify the backend** below.
+
+### B. Existing host Apache (the current VPS setup)
+
+The default `compose.fallback.yaml` exposes only container-network port 8080.
+`8080/tcp` in `docker ps` does not publish it for host Apache. A healthy container
+therefore cannot receive the public hostname until a host mapping and virtual
+host have been configured.
+
+Use the **same fallback resource** in Coolify, on the VPS, with these differences:
+
+| Setting | Value |
+| --- | --- |
+| Compose location | `/compose.fallback.apache.yaml` |
+| Coolify Domains | Empty for this resource |
+| Backend available to Apache | `http://127.0.0.1:18080` |
+| Public hostname handled by Apache | `dashboard-fallback.davevancauwenberghe.be` |
+
+Keep `DASHBOARD_PUBLIC_URL=https://dashboard.davevancauwenberghe.be` available at
+both build time and runtime. The alternative Compose file selects the same image,
+health check, read-only filesystem and resource limits as the default mode. Use
+one mode in the existing resource; creating a second fallback is unnecessary.
+
+Before deploying, check that host port 18080 is unused:
+
+```bash
+sudo ss -lntp '( sport = :18080 )'
+```
+
+Save the Compose location, reload the definition, clear the resource's Domains
+and redeploy. On the **VPS**, test the backend directly:
+
+```bash
+curl --fail --silent --show-error --include http://127.0.0.1:18080/healthz
+```
+
+Expect 200, `X-Optimon-Origin: fallback`, `X-Optimon-Fallback: 1` and
+`{"ok":true,"mode":"fallback"}`. `docker ps` should show
+`127.0.0.1:18080->8080/tcp`; the port must not bind to `0.0.0.0` or `[::]`.
+No public 18080 firewall rule is needed.
+
+Next inspect the existing Apache virtual hosts and **certificate file paths**:
+
+```bash
+sudo apache2ctl -S
+sudo grep -R -n -E '^[[:space:]]*(ServerName|SSLCertificate(File|KeyFile|ChainFile))[[:space:]]' /etc/apache2/sites-enabled
+```
+
+These commands show paths, not private-key contents. Use an unexpired certificate
+covering `dashboard-fallback.davevancauwenberghe.be`, issued by a public CA or
+Cloudflare Origin CA. An existing `*.davevancauwenberghe.be` certificate can cover
+that hostname; inspect its subject alternative names before reusing it. Obtain a
+matching certificate if necessary. Keep Cloudflare at Full (strict).
+
+From a local checkout of this repository **on the VPS**, prepare a dedicated site:
+
+```bash
+sudo install -m 0644 deploy/apache-fallback.conf.example /etc/apache2/sites-available/optimon-fallback.conf
+sudo nano /etc/apache2/sites-available/optimon-fallback.conf
+```
+
+Replace **both** `/REPLACE/WITH/` paths with the actual certificate/full-chain
+and private-key paths. The example terminates HTTPS on Apache, redirects this
+hostname's HTTP traffic to HTTPS, and forwards to the fixed loopback backend.
+`ProxyErrorOverride Off` preserves the fallback's intentional API 503 JSON.
+Keep the other Apache sites and their certificate configuration in place.
+
+Once the file has valid certificate paths, enable the required modules and site:
+
+```bash
+sudo a2enmod proxy proxy_http ssl alias
+sudo a2ensite optimon-fallback.conf
+sudo apache2ctl configtest
+```
+
+Only after `Syntax OK`, reload Apache gracefully:
+
+```bash
+sudo systemctl reload apache2
+```
+
+The example needs host-specific certificate configuration and has not been
+validated against your live Apache setup. A default “This host isn't configured”
+403 means the hostname is still reaching a default virtual host rather than the
+new route. A 502 after adding the route points to the loopback backend. Check
+Apache's logs and the local health endpoint before changing Cloudflare security.
+
+### Verify the backend (both modes)
 
 Check from your Mac/PC:
 
@@ -232,6 +334,9 @@ and check again when visible. No history is deleted by this test.
 - Keep the VPS fallback's Git source up to date alongside the home resource so its
   shared fonts/styles/scripts remain compatible. Rebuild to pick up Node image fixes.
 - The fallback has no data volume to back up. Keep backing up the real archive.
+- In Apache mode, maintain the host certificate and its existing renewal process.
+  To remove that backend later, disable only `optimon-fallback.conf`, run
+  `apache2ctl configtest`, and reload Apache after `Syntax OK`.
 - The primary hostname's `/healthz` detects an unreachable home web origin; the
   backend hostname's `/healthz` measures only fallback-process health. A stopped
   bot with a reachable web origin can still return 200, including a stale export
@@ -266,3 +371,6 @@ than fixes required for this deployment.
 - [Coolify environment variable scopes](https://coolify.io/docs/applications/configuration/environment-variables)
 - [Restricting direct access to a Cloudflare origin](https://developers.cloudflare.com/fundamentals/concepts/cloudflare-ip-addresses/)
 - [Workers compatibility dates](https://developers.cloudflare.com/workers/configuration/compatibility-dates/)
+
+- [Apache reverse proxy configuration](https://httpd.apache.org/docs/2.4/howto/reverse_proxy.html)
+- [Docker loopback port publication](https://docs.docker.com/engine/network/port-publishing/)
