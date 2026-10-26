@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, readdir, stat, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, stat, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -85,6 +85,13 @@ test('public projection excludes audit IDs, credentials, addresses and unknown n
     address: '192.168.1.184',
     actorId: secret,
     memory: { ...f.sample().memory, actorId: secret },
+    cpuDetails: {
+      ...f.sample().cpuDetails,
+      actorId: secret,
+      perCore: [{ id: 0, percent: 5, actorId: secret }],
+    },
+    memoryBreakdown: { ...f.sample().memoryBreakdown, actorId: secret },
+    disk: { total: 100, used: 40, available: 60, percent: 40, actorId: secret },
     temperatures: [
       { label: 'Core 0', celsius: 31, actorId: secret },
       { label: secret, celsius: 30 },
@@ -117,6 +124,49 @@ test('public projection excludes audit IDs, credentials, addresses and unknown n
   assert.equal(parsePublicData(raw).live.secret, undefined);
   raw.live.cpuPercent = 101;
   assert.throws(() => parsePublicData(raw));
+});
+
+test('failed first history read retries on the next sample, while live exports and diagnostics stay accurate', async (t) => {
+  const f = await fixture(t);
+  let attempts = 0;
+  const publisher = new DashboardPublisher(
+    f.dataPath,
+    async () => {
+      if (++attempts === 1) throw new Error('cold archive');
+      return queryDashboard(f.store.db, f.now());
+    },
+    f.now,
+  );
+  await assert.rejects(publisher.publish(f.sample()), /cold archive/);
+  assert.equal(publisher.status().liveHealthy, true);
+  assert.equal(publisher.status().historyHealthy, false);
+  assert.equal(publisher.status().historyFailures, 1);
+  assert.ok((await readFile(join(f.dataPath, 'metrics.json'), 'utf8')).includes('"schema":1'));
+  f.advance(60_000);
+  await publisher.publish(f.sample());
+  assert.equal(attempts, 2);
+  assert.equal(publisher.status().historyHealthy, true);
+  assert.equal(publisher.status().lastHistoryAt, f.now());
+  assert.ok(await readFile(join(f.dataPath, 'history.json'), 'utf8'));
+  f.advance(60_000);
+  await publisher.publish(f.sample());
+  assert.equal(attempts, 2, 'five-minute cadence begins only after a successful export');
+});
+
+test('failed history file promotion retries without waiting five minutes; live validation failures are counted too', async (t) => {
+  const f = await fixture(t);
+  await mkdir(join(f.dataPath, 'history.json'), { recursive: true });
+  await assert.rejects(f.publisher.publish(f.sample()));
+  assert.equal(f.publisher.status().historyFailures, 1);
+  await rm(join(f.dataPath, 'history.json'), { recursive: true });
+  f.advance(60_000);
+  await f.publisher.publish(f.sample());
+  assert.equal(f.publisher.status().historyHealthy, true);
+  await assert.rejects(f.publisher.publish({ ...f.sample(), cpuPercent: 101 }));
+  assert.equal(f.publisher.status().liveFailures, 1);
+  assert.equal(f.publisher.status().liveHealthy, false);
+  await f.publisher.publish(f.sample());
+  assert.equal(f.publisher.status().liveHealthy, true);
 });
 test('public archive keeps bounded chart points, missing buckets and all-time data older than a year', async (t) => {
   const f = await fixture(t);
@@ -151,7 +201,7 @@ test('public history runs in the query worker and coalesces with a fixed cache e
   assert.equal(reader.pending.size, 0);
   assert.equal(reader.cache.size, 1);
 });
-test('history refresh is five-minute bounded and failure still publishes current live readings', async (t) => {
+test('repeated history failures retry each sample and still publish current live readings', async (t) => {
   const f = await fixture(t);
   let calls = 0;
   const p = new DashboardPublisher(
@@ -168,11 +218,11 @@ test('history refresh is five-minute bounded and failure still publishes current
     f.now(),
   );
   f.advance(60_000);
-  await p.publish(f.sample());
-  assert.equal(calls, 1);
-  f.advance(PUBLIC_HISTORY_MS);
   await assert.rejects(p.publish(f.sample()));
   assert.equal(calls, 2);
+  f.advance(PUBLIC_HISTORY_MS);
+  await assert.rejects(p.publish(f.sample()));
+  assert.equal(calls, 3);
 });
 test('HTTP API reconstructs an allowlist and does not serve private files or arbitrary routes', async (t) => {
   const f = await fixture(t);

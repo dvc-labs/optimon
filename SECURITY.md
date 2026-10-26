@@ -32,6 +32,15 @@ credentials or detailed exploit instructions in a public issue.
 
 ## Host metrics
 
+Optional disk capacity uses only a dedicated empty directory bind, read-only,
+on the intended root filesystem. The collector verifies that it is a mount point
+and empty, then calls `statfs`; it does not open files within that directory,
+mount `/`, access block devices or need elevated capabilities. The default Compose
+file does not add this mount. Memory/CPU/process detail and boot timestamps are
+public aggregate host readings, selected explicitly by the public-data contract.
+Derived monitoring gaps contain only sample timestamps and durations. Discord
+identities, command audit rows, mount paths and connection diagnostics stay private.
+
 The private `optiplex` Compose service runs as a non-root user with all Linux capabilities dropped,
 no-new-privileges, a read-only root filesystem, bounded CPU/memory/process counts,
 and rotating Docker logs. It has no published ports, host networking, host PID

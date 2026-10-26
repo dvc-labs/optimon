@@ -3,13 +3,15 @@ import type { Config } from './config.js';
 import type { SnapshotPublisher } from './dashboard-publisher.js';
 import { handleCommand, isKnownCommand, type CommandContext } from './commands.js';
 import { Cooldown, ReportControls } from './controls.js';
-import { baseEmbed, statsEmbed, thermalEmbed } from './embeds.js';
+import { baseEmbed, statsEmbed, thermalEmbed, diskEmbed } from './embeds.js';
+import type { StartupContext } from './availability.js';
+import type { ConnectionStatus } from './discord-connection.js';
 import { ExternalHeartbeat } from './heartbeat.js';
 import { pointFromSnapshot } from './history.js';
 import type { HistoryReader } from './history-query.js';
 import { log, safeError } from './log.js';
 import { hottestTemperature, type Snapshot } from './metrics.js';
-import { MetricsCache, SAMPLE_INTERVAL_MS, ThermalWatch } from './monitoring.js';
+import { DiskWatch, MetricsCache, SAMPLE_INTERVAL_MS, ThermalWatch } from './monitoring.js';
 import type { BotReporter } from './reporter.js';
 import { scheduleReports } from './scheduler.js';
 import type { CommandOutcome, TelemetryStore } from './telemetry.js';
@@ -31,6 +33,7 @@ interface RuntimeOptions {
   collect: () => Promise<Snapshot>;
   heartbeat?: ExternalHeartbeat;
   publisher?: SnapshotPublisher;
+  connectionStatus?: () => ConnectionStatus;
   schedule?: typeof scheduleReports;
   logger?: typeof log;
   now?: () => number;
@@ -39,6 +42,7 @@ interface RuntimeOptions {
 export class MonitorRuntime {
   readonly reports = new ReportControls();
   readonly thermal = new ThermalWatch();
+  readonly disk = new DiskWatch();
   readonly cache: MetricsCache;
   private readonly context: CommandContext;
   private readonly heartbeat: ExternalHeartbeat;
@@ -47,7 +51,11 @@ export class MonitorRuntime {
   private tasks = new Set<Promise<unknown>>();
   private stopping = false;
   private initialized = false;
+  private discordInitialized = false;
+  private firstSample: StartupContext | null = null;
+  private readonly previousAt: number | null;
   private startup: Promise<void> | null = null;
+  private discordStartup: Promise<void> | null = null;
   private shutdown: Promise<void> | null = null;
   private nextAuditCleanup = 0;
   private readonly now: () => number;
@@ -63,6 +71,7 @@ export class MonitorRuntime {
     this.heartbeat = options.heartbeat ?? new ExternalHeartbeat(config.heartbeatUrl);
     const now = options.now ?? Date.now;
     this.now = now;
+    this.previousAt = options.telemetry.lastMetricAt(now());
     this.cache = new MetricsCache(async () => {
       const snapshot = await options.collect();
       if (snapshot.unavailable.length)
@@ -81,14 +90,27 @@ export class MonitorRuntime {
       archive: {
         summary: (minutes) => options.archive.summary(minutes),
         compare: (minutes) => options.archive.compare(minutes),
+        availability: () => options.archive.availability(),
         recentCommands: (limit) => options.telemetry.recentCommands(limit),
       },
       heartbeatStatus: () => this.heartbeat.status(),
+      exportStatus: () => options.publisher?.status?.() ?? null,
+      connectionStatus: () => options.connectionStatus?.() ?? null,
     };
   }
 
   get ready(): boolean {
-    return this.initialized && !this.stopping && this.options.gateway.isReady();
+    return (
+      this.initialized &&
+      this.discordInitialized &&
+      !this.stopping &&
+      this.options.gateway.isReady()
+    );
+  }
+
+  get healthy(): boolean {
+    const age = this.cache.last ? this.now() - this.cache.last.capturedAt.getTime() : Infinity;
+    return this.initialized && !this.stopping && age >= -5000 && age < 150_000;
   }
 
   private track<T>(task: Promise<T>): Promise<T> {
@@ -106,21 +128,13 @@ export class MonitorRuntime {
   }
 
   private async startInternal(): Promise<void> {
-    if (this.options.gateway.applicationId() !== this.config.applicationId) {
-      throw Object.assign(new Error('Application ID mismatch.'), { name: 'ApplicationIdMismatch' });
-    }
-    await this.options.gateway.register();
-    if (this.stopping) return;
     this.initialized = true;
-    this.logger('ready', {
-      version: VERSION,
-      host: this.config.hostName,
-      reportIntervalMinutes: this.config.intervalMinutes,
-      ownerControlsEnabled: this.config.adminId !== null,
-      thermalAlertsEnabled: this.config.thermalAlerts,
-      heartbeatEnabled: this.config.heartbeatUrl !== null,
-    });
-    await this.sample();
+    this.logger('monitoring_started', { version: VERSION, host: this.config.hostName });
+    try {
+      await this.sample();
+    } catch (error) {
+      this.logger('monitor_sample_failed', safeError(error));
+    }
     if (this.stopping) return;
     this.stopSamples = this.schedule(
       () => this.sample(),
@@ -132,9 +146,47 @@ export class MonitorRuntime {
       this.config.intervalMinutes * 60_000,
       (error) => this.logger('scheduled_report_task_failed', safeError(error)),
     );
+  }
+
+  discordReady(): Promise<void> {
+    if (this.stopping || this.discordInitialized) return Promise.resolve();
+    this.discordStartup ??= this.track(this.prepareDiscord()).finally(() => {
+      this.discordStartup = null;
+    });
+    return this.discordStartup;
+  }
+
+  private async prepareDiscord(): Promise<void> {
+    await this.start();
+    if (this.stopping) return;
+    if (!this.options.gateway.isReady())
+      throw Object.assign(new Error('Discord setup interrupted.'), {
+        name: 'DiscordSetupInterrupted',
+      });
+    if (this.options.gateway.applicationId() !== this.config.applicationId) {
+      throw Object.assign(new Error('Application ID mismatch.'), { name: 'ApplicationIdMismatch' });
+    }
+    await this.options.gateway.register();
+    if (this.stopping) return;
+    if (!this.options.gateway.isReady())
+      throw Object.assign(new Error('Discord setup interrupted.'), {
+        name: 'DiscordSetupInterrupted',
+      });
+    this.discordInitialized = true;
+    this.logger('ready', {
+      version: VERSION,
+      host: this.config.hostName,
+      reportIntervalMinutes: this.config.intervalMinutes,
+      ownerControlsEnabled: this.config.adminId !== null,
+      thermalAlertsEnabled: this.config.thermalAlerts,
+      heartbeatEnabled: this.config.heartbeatUrl !== null,
+    });
     try {
-      const embed = statsEmbed(await this.cache.getSnapshot(), this.config, true);
-      if (this.stopping) return;
+      const snapshot = await this.cache.getSnapshot();
+      this.updateActivity(snapshot);
+      await this.pingHeartbeat(snapshot);
+      const embed = statsEmbed(snapshot, this.config, true, this.firstSample);
+      if (!this.ready) return;
       const storage = this.options.telemetry.status();
       if (storage.recoveries)
         embed.addFields({
@@ -158,6 +210,11 @@ export class MonitorRuntime {
   private async sampleInternal(): Promise<void> {
     const snapshot = await this.cache.getSnapshot();
     if (this.stopping) return;
+    this.firstSample ??= {
+      previousAt: this.previousAt,
+      firstAt: snapshot.capturedAt.getTime(),
+      bootTime: snapshot.bootTime,
+    };
     const point = pointFromSnapshot(snapshot);
     try {
       this.options.telemetry.recordMetrics(point ? [point] : []);
@@ -180,20 +237,10 @@ export class MonitorRuntime {
         this.logger('audit_retention_failed', safeError(error));
       }
     }
-    if (this.options.gateway.isReady()) {
-      const temperature = hottestTemperature(snapshot);
-      const readings = [
-        temperature === null ? null : `${temperature.toFixed(0)} °C`,
-        snapshot.cpuPercent === null ? null : `CPU ${snapshot.cpuPercent.toFixed(0)}%`,
-        snapshot.memory === null ? null : `RAM ${snapshot.memory.percent.toFixed(0)}%`,
-      ].filter(Boolean);
-      this.options.gateway.activity(
-        `${this.config.hostName} · ${readings.join(' · ') || 'readings unavailable'}`.slice(0, 128),
-      );
-    }
+    this.updateActivity(snapshot);
     if (this.config.thermalAlerts) {
       const event = this.thermal.observe(snapshot);
-      if (event && this.options.gateway.isReady()) {
+      if (event && this.ready) {
         try {
           await this.options.reporter.send(thermalEmbed(event, snapshot));
           this.thermal.confirm(event);
@@ -205,6 +252,42 @@ export class MonitorRuntime {
         }
       }
     }
+    if (this.config.diskAlerts) {
+      const event = this.disk.observe(snapshot);
+      if (event && this.ready) {
+        try {
+          await this.options.reporter.send(diskEmbed(event, snapshot));
+          this.disk.confirm(event);
+          this.logger('disk_notification_sent', { state: event });
+        } catch (error) {
+          this.reports.failures++;
+          this.reports.diskFailures++;
+          this.logger('disk_notification_failed', { state: event, ...safeError(error) });
+        }
+      }
+    }
+    await this.pingHeartbeat(snapshot);
+    await exported;
+  }
+
+  private updateActivity(snapshot: Snapshot): void {
+    if (!this.ready) return;
+    const temperature = hottestTemperature(snapshot);
+    const readings = [
+      temperature === null ? null : `${temperature.toFixed(0)} °C`,
+      snapshot.cpuPercent === null ? null : `CPU ${snapshot.cpuPercent.toFixed(0)}%`,
+      snapshot.memory === null ? null : `RAM ${snapshot.memory.percent.toFixed(0)}%`,
+    ].filter(Boolean);
+    try {
+      this.options.gateway.activity(
+        `${this.config.hostName} · ${readings.join(' · ') || 'readings unavailable'}`.slice(0, 128),
+      );
+    } catch (error) {
+      this.logger('discord_activity_failed', safeError(error));
+    }
+  }
+
+  private async pingHeartbeat(snapshot: Snapshot): Promise<void> {
     if (
       this.ready &&
       (snapshot.cpuPercent !== null || snapshot.memory !== null || snapshot.temperatures.length > 0)
@@ -215,7 +298,6 @@ export class MonitorRuntime {
         this.logger('external_heartbeat_failed', safeError(error));
       }
     }
-    await exported;
   }
 
   private async exportPublic(snapshot: Snapshot): Promise<void> {
@@ -233,10 +315,10 @@ export class MonitorRuntime {
   }
 
   private async postInternal(): Promise<void> {
-    if (this.reports.isPaused()) return;
+    if (!this.ready || this.reports.isPaused()) return;
     try {
       const snapshot = await this.cache.getSnapshot();
-      if (this.stopping || this.reports.isPaused()) return;
+      if (!this.ready || this.reports.isPaused()) return;
       await this.options.reporter.send(statsEmbed(snapshot, this.config));
       this.reports.lastReportAt = Date.now();
       this.logger('stats_report_sent');
@@ -247,7 +329,7 @@ export class MonitorRuntime {
   }
 
   dispatch(interaction: ChatInputCommandInteraction): Promise<boolean> {
-    if (this.stopping || !isKnownCommand(interaction.commandName)) return Promise.resolve(false);
+    if (!this.ready || !isKnownCommand(interaction.commandName)) return Promise.resolve(false);
     return this.track(this.dispatchInternal(interaction));
   }
 

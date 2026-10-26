@@ -12,6 +12,7 @@ import { createDashboard } from '../dist/dashboard-server.js';
 import { loadDashboardConfig } from '../dist/dashboard-config.js';
 import { createFallback, loadFallbackConfig } from '../dist/fallback-server.js';
 import { queryDashboard } from '../dist/dashboard-query.js';
+import { VERSION } from '../dist/version.js';
 
 const { values } = parseArgs({
   options: {
@@ -92,7 +93,7 @@ async function update() {
     join(directory, 'metrics.json'),
     JSON.stringify({
       schema: 1,
-      version: '0.3.1',
+      version: VERSION,
       generatedAt: at,
       thermalWarnC: 80,
       thermalRecoverC: 75,
@@ -102,6 +103,24 @@ async function update() {
         botUptime: 5 * 3600 + 14 * 60,
         cpuPercent: hot ? 71.4 : +(1.5 + noise() * 3).toFixed(1),
         cores: 6,
+        bootTime: started - 10 * DAY,
+        runnableTasks: hot ? 4 : 1,
+        cpuDetails: {
+          iowaitPercent: 0.3,
+          stealPercent: 0,
+          perCore: cores.map((_, id) => ({ id, percent: hot ? 65 + id : 1 + id })),
+        },
+        memoryBreakdown: {
+          free: 6800000000,
+          cached: 450000000,
+          buffers: 35000000,
+          slab: 120000000,
+          reclaimableSlab: 30000000,
+          unreclaimableSlab: 90000000,
+          kernelStack: 5000000,
+          pageTables: 7500000,
+        },
+        disk: { total: 250000000000, used: 10000000000, available: 228000000000, percent: 4.2 },
         memory: { total: 8136000000, used: 1002000000, available: 7134000000, percent: 12.3 },
         swap: { total: 4294967296, used: 0, available: 4294967296, percent: 0 },
         load: hot ? [4.12, 3.77, 2.9] : [0.08, 0.11, 0.09],

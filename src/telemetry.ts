@@ -350,6 +350,11 @@ export class TelemetryStore {
     };
   }
 
+  lastMetricAt(now = Date.now()): number | null {
+    const at = this.db.prepare('SELECT MAX(at) AS at FROM metrics WHERE at<=?').get(now)!.at;
+    return at === null ? null : Number(at);
+  }
+
   close(): void {
     if (this.closed) return;
     try {

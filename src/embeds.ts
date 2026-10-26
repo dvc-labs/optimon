@@ -8,7 +8,21 @@ import type { TelemetryStatus } from './telemetry.js';
 import type { CommandAudit } from './telemetry.js';
 import type { HistoryComparison } from './history-query.js';
 import type { ExternalHeartbeatStatus } from './heartbeat.js';
-import { THERMAL_WARN_C, THERMAL_RECOVER_C, type ThermalEvent } from './monitoring.js';
+import type { ExportStatus } from './dashboard-publisher.js';
+import type { ConnectionStatus } from './discord-connection.js';
+import {
+  GAP_THRESHOLD_MS,
+  type StartupContext,
+  type AvailabilityWindow,
+  type MonitoringAvailability,
+} from './availability.js';
+import {
+  THERMAL_WARN_C,
+  THERMAL_RECOVER_C,
+  DISK_WARN_PERCENT,
+  DISK_RECOVER_PERCENT,
+  type ThermalEvent,
+} from './monitoring.js';
 import { VERSION } from './version.js';
 
 export const BRAND_COLOR = 0x007db8;
@@ -37,9 +51,12 @@ export function gib(bytes: number): string {
 function timestamp(ms: number, style = 'R'): string {
   return `<t:${Math.floor(ms / 1000)}:${style}>`;
 }
+function percentage(value: number | null): string {
+  return value === null ? 'Unavailable' : `${value.toFixed(1)}%`;
+}
 
 export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder {
-  return baseEmbed('About Optimon')
+  const embed = baseEmbed('About Optimon')
     .setDescription(
       'A small companion for optiplex: keeping an eye on the home lab, one temperature reading at a time.',
     )
@@ -50,7 +67,7 @@ export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder
       {
         name: 'Features',
         value:
-          'Live stats • Swap usage • Uptime • Archived trends • Comparisons • Thermal alerts • Server moods\nTry `/help`.',
+          'Live stats • Swap usage • Uptime • Monitoring gaps • Archived trends • Comparisons • Alerts • Server moods\nTry `/help`.',
       },
       {
         name: 'Scheduled reports',
@@ -60,9 +77,20 @@ export function aboutEmbed(config: Config, reports?: ReportStatus): EmbedBuilder
       },
       { name: 'Source', value: '[dvc-labs/optimon](https://github.com/dvc-labs/optimon)' },
     );
+  if (config.dashboardUrl)
+    embed.addFields({
+      name: 'Dashboard',
+      value: `[Live readings and history](${config.dashboardUrl}/)`,
+    });
+  return embed;
 }
 
-export function statsEmbed(snapshot: Snapshot, config: Config, startup = false): EmbedBuilder {
+export function statsEmbed(
+  snapshot: Snapshot,
+  config: Config,
+  startup = false,
+  context: StartupContext | null = null,
+): EmbedBuilder {
   const memory = snapshot.memory;
   const packageSensor = snapshot.temperatures.find((value) => /^Package/i.test(value.label));
   const cores = snapshot.temperatures.filter((value) => /^Core\s/i.test(value.label));
@@ -70,13 +98,19 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
     ? Math.max(...snapshot.temperatures.map((value) => value.celsius))
     : null;
   const embed = baseEmbed(
-    startup ? 'Optimon is online' : 'Optimon · Host snapshot',
+    startup
+      ? context?.previousAt !== null && context?.previousAt !== undefined
+        ? context.firstAt - context.previousAt > GAP_THRESHOLD_MS
+          ? 'Optimon · Monitoring resumed'
+          : 'Optimon · Monitor restarted'
+        : 'Optimon is online'
+      : 'Optimon · Host snapshot',
     snapshot.capturedAt,
   )
     .setDescription(
       startup
         ? `Connected to Discord and monitoring **${config.hostName}**. ` +
-            'A bot start can also be a deployment or container restart; host uptime is shown separately.'
+            startupDescription(context)
         : `A fresh look at **${config.hostName}**.`,
     )
     .addFields(
@@ -117,6 +151,29 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
         inline: true,
       },
     );
+  const details = snapshot.cpuDetails;
+  if (details)
+    embed.addFields({
+      name: 'CPU detail · 1s sample',
+      value:
+        `I/O wait: ${percentage(details.iowaitPercent)} · Steal: ${percentage(details.stealPercent)}\n` +
+        details.perCore
+          .map((core) => `Core ${core.id}: ${percentage(core.percent)}`)
+          .join(' · ')
+          .slice(0, 800),
+    });
+  if (snapshot.runnableTasks !== null && snapshot.runnableTasks !== undefined)
+    embed.addFields({
+      name: 'Runnable tasks',
+      value: String(snapshot.runnableTasks),
+      inline: true,
+    });
+  if (snapshot.disk)
+    embed.addFields({
+      name: 'Root filesystem space',
+      value: `${gib(snapshot.disk.used)} used · ${gib(snapshot.disk.available)} available · ${snapshot.disk.percent.toFixed(1)}% of usable space`,
+      inline: true,
+    });
   if (cores.length)
     embed.addFields({
       name: 'CPU cores',
@@ -131,8 +188,25 @@ export function statsEmbed(snapshot: Snapshot, config: Config, startup = false):
   return embed;
 }
 
-export function helpEmbed(): EmbedBuilder {
-  return baseEmbed('Optimon · Command guide')
+function startupDescription(context: StartupContext | null): string {
+  if (!context || context.previousAt === null)
+    return 'This is the first recorded start in this archive. Host uptime is shown separately.';
+  const gap = context.firstAt - context.previousAt;
+  const booted =
+    context.bootTime !== null &&
+    context.bootTime > context.previousAt &&
+    context.bootTime <= context.firstAt + 5000;
+  const bootKnown = context.bootTime !== null && context.bootTime <= context.firstAt + 5000;
+  const cause = booted
+    ? 'The host boot time suggests a reboot since the previous reading.'
+    : bootKnown
+      ? 'The current host boot predates the previous reading; the monitor restarted on an already-running host.'
+      : 'The host boot time was not available, so the cause is unknown.';
+  return `${gap > GAP_THRESHOLD_MS ? `Monitoring resumed about **${formatDuration(gap / 1000)}** after the last archived reading. ` : 'The monitor restarted. '}${cause} A gap alone does not prove the host was powered off.`;
+}
+
+export function helpEmbed(config?: Config): EmbedBuilder {
+  const embed = baseEmbed('Optimon · Command guide')
     .setDescription('A tiny Dell with opinions and telemetry.')
     .addFields(
       {
@@ -145,6 +219,7 @@ export function helpEmbed(): EmbedBuilder {
         value: [
           '`/history` — 1h, 6h, 24h, 7d, 30d or 365d.',
           '`/compare` — compare consecutive windows.',
+          '`/outages` — 7/30-day monitoring coverage and recent gaps.',
           '`/ping` — Discord latency.',
           '`/vibe` — a playful take on the readings.',
         ].join('\n'),
@@ -163,27 +238,71 @@ export function helpEmbed(): EmbedBuilder {
         value:
           'One background sample about every minute; interactive readings can be cached for 15 seconds. ' +
           'Metric history stays on disk. History queries use a worker and a 60-second result cache. ' +
-          'Thermal alerts continue during a report pause.',
+          'Thermal and disk alerts continue during a report pause. Sampling continues while Discord is disconnected.',
       },
     );
+  if (config?.dashboardUrl)
+    embed.addFields({
+      name: 'Dashboard',
+      value: `[Live readings and history](${config.dashboardUrl}/)`,
+    });
+  return embed;
 }
 
-export function uptimeEmbed(snapshot: Snapshot, config: Config): EmbedBuilder {
+export function uptimeEmbed(
+  snapshot: Snapshot,
+  config: Config,
+  availability?: MonitoringAvailability,
+): EmbedBuilder {
   const now = snapshot.capturedAt.getTime();
-  return baseEmbed('Optimon · Uptime', snapshot.capturedAt)
+  const boot =
+    snapshot.bootTime ?? (snapshot.hostUptime === null ? null : now - snapshot.hostUptime * 1000);
+  const embed = baseEmbed('Optimon · Uptime', snapshot.capturedAt)
     .setDescription(`The clocks aboard **${config.hostName}**.`)
     .addFields(
       { name: 'Host uptime', value: formatDuration(snapshot.hostUptime), inline: true },
       { name: 'Bot uptime', value: formatDuration(snapshot.botUptime), inline: true },
       {
-        name: 'Estimated host boot',
-        value:
-          snapshot.hostUptime === null
-            ? 'Unavailable'
-            : `${timestamp(now - snapshot.hostUptime * 1000, 'F')}\n${timestamp(now - snapshot.hostUptime * 1000)}`,
+        name: snapshot.bootTime ? 'Host boot · /proc/stat' : 'Estimated host boot',
+        value: boot === null ? 'Unavailable' : `${timestamp(boot, 'F')}\n${timestamp(boot)}`,
       },
       { name: 'Estimated bot start', value: timestamp(now - snapshot.botUptime * 1000, 'F') },
     );
+  for (const window of availability?.windows ?? [])
+    embed.addFields({
+      name: `${window.days}-day monitoring availability`,
+      value: coverageDescription(window),
+    });
+  return embed;
+}
+
+function coverageDescription(window: AvailabilityWindow): string {
+  if (window.coveragePercent === null) return 'No archived readings yet.';
+  return (
+    `**${window.coveragePercent.toFixed(1)}%** of observed minute buckets have a reading (${window.recordedMinutes}/${window.expectedMinutes}).\n` +
+    `Observed since ${timestamp(window.observedFrom!, 'F')}. ${window.gapCount} monitoring gaps over 3.5 minutes. This is sample coverage, not proven host uptime.`
+  );
+}
+export function outagesEmbed(window: AvailabilityWindow): EmbedBuilder {
+  const embed = baseEmbed(`Optimon · Monitoring gaps · ${window.days} days`)
+    .setDescription(
+      'Derived from archived timestamps. Missing samples can mean a monitor restart, storage failure, reboot or power-off. Boundaries are approximate to about one sample; no cause is inferred for historical gaps.',
+    )
+    .addFields({ name: 'Monitoring availability', value: coverageDescription(window) });
+  if (!window.recentGaps.length)
+    return embed.addFields({
+      name: 'Recent gaps',
+      value:
+        window.observedFrom === null
+          ? 'No recorded history yet.'
+          : 'No gaps over 3.5 minutes in the observed period.',
+    });
+  for (const gap of window.recentGaps)
+    embed.addFields({
+      name: gap.resumedAt === null ? 'No newer archived sample' : 'Monitoring resumed',
+      value: `Last sample: ${timestamp(gap.lastSeenAt, 'F')}\n${gap.resumedAt === null ? 'Still missing as of this query.' : `Next sample: ${timestamp(gap.resumedAt, 'F')}`}\nAbout ${formatDuration(gap.durationMs / 1000)} missing within this window, after the next expected sample.`,
+    });
+  return embed;
 }
 
 function formatWindow(minutes: number): string {
@@ -296,6 +415,8 @@ export interface Diagnostics {
   now: number;
   historyStorage: TelemetryStatus;
   heartbeat?: ExternalHeartbeatStatus;
+  dashboard?: ExportStatus | null;
+  connection?: ConnectionStatus | null;
 }
 export function diagnosticsEmbed(
   snapshot: Snapshot,
@@ -392,6 +513,33 @@ export function diagnosticsEmbed(
           : 'Disabled',
       },
       { name: 'Unavailable readings', value: snapshot.unavailable.join(', ') || 'None' },
+      {
+        name: 'Dashboard exports',
+        value: data.dashboard
+          ? [
+              `Live: ${data.dashboard.liveHealthy === null ? 'Waiting' : data.dashboard.liveHealthy ? 'Healthy' : 'Failed'} · failures ${data.dashboard.liveFailures}`,
+              `Last live success: ${data.dashboard.lastLiveAt === null ? 'None yet' : timestamp(data.dashboard.lastLiveAt)}`,
+              `History: ${data.dashboard.historyHealthy === null ? 'Waiting' : data.dashboard.historyHealthy ? 'Healthy' : 'Failed'} · failures ${data.dashboard.historyFailures}`,
+              `Last history success: ${data.dashboard.lastHistoryAt === null ? 'None yet' : timestamp(data.dashboard.lastHistoryAt)}`,
+            ].join('\n')
+          : 'Disabled',
+      },
+      {
+        name: 'Discord session',
+        value: data.connection
+          ? [
+              data.connection.connected ? 'Connected' : 'Disconnected',
+              `Login failures: ${data.connection.loginFailures} · setup failures: ${data.connection.registrationFailures} · reconnects: ${data.connection.reconnects}`,
+              `Last ready: ${data.connection.lastReadyAt === null ? 'None yet' : timestamp(data.connection.lastReadyAt)}`,
+              `Last disconnect: ${data.connection.lastDisconnectAt === null ? 'None yet' : timestamp(data.connection.lastDisconnectAt)}`,
+              `Last resume: ${data.connection.lastResumeAt === null ? 'None yet' : timestamp(data.connection.lastResumeAt)}`,
+            ].join('\n')
+          : 'Session diagnostics unavailable',
+      },
+      {
+        name: 'Disk alerts',
+        value: `${config.diskAlerts ? 'Enabled when mounted' : 'Disabled'} · ${DISK_WARN_PERCENT}% warning / ${DISK_RECOVER_PERCENT}% recovery · delivery failures ${data.reports.diskFailures ?? 0}`,
+      },
     );
 }
 
@@ -478,6 +626,32 @@ export function thermalEmbed(event: ThermalEvent, snapshot: Snapshot): EmbedBuil
         name: 'Sampling',
         value:
           'About one sample per minute. One notice per confirmed transition; no automatic mentions.',
+      },
+    );
+}
+
+export function diskEmbed(event: ThermalEvent, snapshot: Snapshot): EmbedBuilder {
+  return baseEmbed(
+    event === 'hot' ? 'Optimon · Sustained disk space warning' : 'Optimon · Disk space recovered',
+    snapshot.capturedAt,
+  )
+    .setColor(event === 'hot' ? 0xe6a23c : 0x2eaf7d)
+    .setDescription(
+      event === 'hot'
+        ? `Root filesystem usage reached at least **${DISK_WARN_PERCENT}%** in two consecutive background samples.`
+        : `Root filesystem usage stayed at or below **${DISK_RECOVER_PERCENT}%** in two consecutive background samples.`,
+    )
+    .addFields(
+      {
+        name: 'Space',
+        value: snapshot.disk
+          ? `${gib(snapshot.disk.used)} used · ${gib(snapshot.disk.available)} available · ${snapshot.disk.percent.toFixed(1)}% of usable space`
+          : 'Unavailable',
+      },
+      {
+        name: 'Scope',
+        value:
+          'Read-only filesystem capacity from the dedicated empty host mount. No files are read or deleted.',
       },
     );
 }

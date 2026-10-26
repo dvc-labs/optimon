@@ -5,6 +5,7 @@ import { ExternalHeartbeat } from '../dist/heartbeat.js';
 import { MonitorRuntime } from '../dist/runtime.js';
 import { TelemetryStore } from '../dist/telemetry.js';
 import { querySummary, queryComparison } from '../dist/history-query.js';
+import { queryAvailability } from '../dist/availability.js';
 import { config, ownerId, snapshot } from './fixtures.mjs';
 
 function deferred() {
@@ -55,8 +56,10 @@ async function fixture(t, overrides = {}) {
   const archive = {
     summary: async (minutes) => querySummary(telemetry.db, minutes, now),
     compare: async (minutes) => queryComparison(telemetry.db, minutes, now),
+    availability: async () => queryAvailability(telemetry.db, now),
     close: async () => {},
   };
+  overrides.seed?.(telemetry, now);
   const runtime = new MonitorRuntime(configuration, {
     telemetry,
     archive,
@@ -126,11 +129,91 @@ async function fixture(t, overrides = {}) {
   };
 }
 
-test('post-ready wiring registers, samples, persists, updates presence and posts once before scheduling', async (t) => {
+async function boot(f) {
+  await f.runtime.start();
+  await f.runtime.discordReady();
+}
+
+test('Discord unavailable at boot never blocks durable samples, public exports or sampling health', async (t) => {
+  const published = [];
+  const f = await fixture(t, {
+    options: {
+      publisher: {
+        publish: async (value) => {
+          published.push(value);
+        },
+      },
+    },
+  });
+  f.gateway.isReady = () => false;
+  await f.runtime.start();
+  assert.equal(f.runtime.ready, false);
+  assert.equal(f.runtime.healthy, true);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.events.includes('register'), false);
+  for (let i = 0; i < 3; i++) {
+    f.advance();
+    await f.jobs[0].task();
+    await f.jobs[1].task();
+  }
+  assert.equal(f.telemetry.status().metricCount, 4);
+  assert.equal(published.length, 4);
+  assert.equal(
+    f.runtime.reports.failures,
+    0,
+    'skipped disconnected reports are not failed deliveries',
+  );
+  f.gateway.isReady = () => true;
+  await f.runtime.discordReady();
+  await f.runtime.discordReady();
+  assert.equal(f.runtime.ready, true);
+  assert.equal(f.sent.length, 1);
+});
+
+test('disk delivery failures retry and alerts continue during a scheduled-report pause', async (t) => {
+  let used = 92;
+  const f = await fixture(t, {
+    options: {
+      collect: async () =>
+        snapshot({
+          capturedAt: new Date(f.now()),
+          disk: { total: 100, used, available: 100 - used, percent: used },
+        }),
+    },
+  });
+  await boot(f);
+  f.runtime.reports.pause(60);
+  const send = f.reporter.send;
+  let reject = true;
+  f.reporter.send = async (embed) => {
+    if (reject) throw new Error('private failure');
+    await send(embed);
+  };
+  f.advance();
+  await f.jobs[0].task();
+  assert.equal(f.runtime.disk.active, false);
+  assert.equal(f.runtime.reports.diskFailures, 1);
+  assert.ok(f.logs.some((entry) => entry.event === 'disk_notification_failed'));
+  reject = false;
+  f.advance();
+  await f.jobs[0].task();
+  assert.equal(f.runtime.disk.active, true);
+  used = 80;
+  f.advance();
+  await f.jobs[0].task();
+  f.advance();
+  await f.jobs[0].task();
+  assert.equal(f.runtime.disk.active, false);
+  assert.match(f.sent.at(-1).title, /Disk space recovered/);
+});
+
+test('sampling starts before Discord setup; ready wiring registers and posts only once', async (t) => {
   const f = await fixture(t);
   await Promise.all([f.runtime.start(), f.runtime.start()]);
+  await f.runtime.discordReady();
+  await f.runtime.discordReady();
   assert.equal(f.runtime.ready, true);
-  assert.deepEqual(f.events, ['register', 'collect', 'activity', 'send']);
+  assert.deepEqual(f.events, ['collect', 'register', 'activity', 'send']);
   assert.equal(f.telemetry.status().metricCount, 1);
   assert.equal(f.sent.length, 1);
   assert.equal(f.sent[0].title, 'Optimon is online');
@@ -149,7 +232,7 @@ test('post-ready wiring registers, samples, persists, updates presence and posts
 test('thermal send failures have dedicated logs and diagnostic counters and retry before confirmation', async (t) => {
   const f = await fixture(t);
   f.temperature(82);
-  await f.runtime.start();
+  await boot(f);
   let rejectThermal = true;
   const send = f.reporter.send;
   f.reporter.send = async (embed) => {
@@ -211,7 +294,7 @@ test('pausing channel reports does not pause durable samples, thermal alerts or 
     options: { heartbeat },
   });
   f.temperature(82);
-  await f.runtime.start();
+  await boot(f);
   f.runtime.reports.pause(60);
   f.advance();
   await f.jobs[0].task();
@@ -244,7 +327,7 @@ test('external failures are redacted and unavailable readings or disconnected Di
         }),
     },
   });
-  await f.runtime.start();
+  await boot(f);
   assert.equal(calls, 1);
   assert.equal(f.logs.at(-1).event, 'external_heartbeat_failed');
   assert.ok(!JSON.stringify(f.logs).includes(endpoint));
@@ -261,7 +344,7 @@ test('external failures are redacted and unavailable readings or disconnected Di
 
 test('shutdown stops scheduling immediately, drains in-flight delivery, then flushes and closes before disconnecting', async (t) => {
   const f = await fixture(t);
-  await f.runtime.start();
+  await boot(f);
   const gate = deferred();
   const entered = deferred();
   f.reporter.send = async () => {
@@ -322,7 +405,7 @@ test('shutdown during collection drains it without writing or sending after stor
 
 test('recognized guild slash commands are durably audited for success, denial, cooldown and failure', async (t) => {
   const f = await fixture(t);
-  await f.runtime.start();
+  await boot(f);
   const success = f.interaction('about');
   await f.runtime.dispatch(success);
   const cooldown = f.interaction('stats');
@@ -356,7 +439,7 @@ test('recognized guild slash commands are durably audited for success, denial, c
 
 test('failed owner interactions keep private replies and audit errors do not disable the command handler', async (t) => {
   const f = await fixture(t);
-  await f.runtime.start();
+  await boot(f);
   f.telemetry.startCommand = () => {
     throw new Error('audit disk problem');
   };
@@ -375,20 +458,38 @@ test('failed owner interactions keep private replies and audit errors do not dis
   assert.equal(f.runtime.reports.failures, 1);
 });
 
-test('an application ID mismatch or failed registration does not start reporting or background work', async (t) => {
+test('application mismatch and failed registration leave sampling running and setup can retry', async (t) => {
   const mismatch = await fixture(t);
   mismatch.gateway.applicationId = () => '1562643787510063299';
-  await assert.rejects(mismatch.runtime.start(), { name: 'ApplicationIdMismatch' });
-  assert.equal(mismatch.jobs.length, 0);
+  await mismatch.runtime.start();
+  await assert.rejects(mismatch.runtime.discordReady(), { name: 'ApplicationIdMismatch' });
+  assert.equal(mismatch.jobs.length, 2);
+  assert.equal(mismatch.telemetry.status().metricCount, 1);
   assert.equal(mismatch.sent.length, 0);
   assert.equal(mismatch.runtime.ready, false);
+  assert.equal(mismatch.runtime.healthy, true);
+  mismatch.temperature(85);
+  mismatch.advance();
+  await mismatch.jobs[0].task();
+  mismatch.advance();
+  await mismatch.jobs[0].task();
+  assert.equal(mismatch.sent.length, 0, 'an unverified application may not send alerts');
+  assert.equal(mismatch.events.includes('activity'), false);
+  assert.equal(await mismatch.runtime.dispatch(mismatch.interaction('stats')), false);
   const failed = await fixture(t);
   failed.gateway.register = async () => {
     throw new Error('fixture registration failure');
   };
-  await assert.rejects(failed.runtime.start(), /registration failure/);
-  assert.equal(failed.jobs.length, 0);
-  assert.equal(failed.telemetry.status().metricCount, 0);
+  await failed.runtime.start();
+  await assert.rejects(failed.runtime.discordReady(), /registration failure/);
+  failed.advance();
+  await failed.jobs[0].task();
+  assert.equal(failed.telemetry.status().metricCount, 2);
+  assert.equal(failed.runtime.healthy, true);
+  failed.gateway.register = async () => {};
+  await failed.runtime.discordReady();
+  assert.equal(failed.runtime.ready, true);
+  assert.equal(failed.sent.length, 1);
 });
 
 test('startup and hourly audit maintenance expire old command records while metrics persist', async (t) => {
@@ -405,7 +506,7 @@ test('startup and hourly audit maintenance expire old command records while metr
     startedAt: f.now() - 91 * 86400_000,
   });
   f.telemetry.finishCommand('old', 'ok');
-  await f.runtime.start();
+  await boot(f);
   assert.equal(f.telemetry.status().commandCount, 0);
   assert.equal(f.telemetry.status().metricCount, 2);
   assert.ok(f.logs.some((entry) => entry.event === 'audit_records_expired' && entry.records === 1));
@@ -433,7 +534,7 @@ test('failed audit cleanup backs off for fifteen minutes while sampling continue
     if (failing) throw new Error('fixture storage failure');
     return prune(...args);
   };
-  await f.runtime.start();
+  await boot(f);
   assert.equal(attempts, 1);
   for (let i = 0; i < 14; i++) {
     f.advance();
@@ -469,7 +570,7 @@ test('public exporting receives host readings, and export failure does not stop 
       },
     },
   });
-  await f.runtime.start();
+  await boot(f);
   assert.equal(published.length, 1);
   assert.equal(published[0].cpuPercent, 5);
   assert.ok(f.logs.some((entry) => entry.event === 'dashboard_export_failed'));
@@ -479,7 +580,7 @@ test('public exporting receives host readings, and export failure does not stop 
   assert.equal(published.length, 2);
 });
 
-test('a slow public export never delays the heartbeat or the Discord activity', async (t) => {
+test('a slow public export never delays the heartbeat or Discord activity on a running monitor', async (t) => {
   let pings = 0;
   const heartbeat = new ExternalHeartbeat('https://example.invalid/fixture', async () => {
     pings++;
@@ -487,28 +588,32 @@ test('a slow public export never delays the heartbeat or the Discord activity', 
   });
   const entered = deferred();
   const release = deferred();
+  let slow = false;
   const f = await fixture(t, {
     config: { HEARTBEAT_URL: 'https://example.invalid/fixture' },
     options: {
       heartbeat,
       publisher: {
         publish: async () => {
-          entered.resolve();
-          await release.promise;
+          if (slow) {
+            entered.resolve();
+            await release.promise;
+          }
         },
       },
     },
   });
-  const started = f.runtime.start();
+  await boot(f);
+  slow = true;
+  f.advance();
+  const sampling = f.runtime.sample();
   try {
     await entered.promise;
     for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(pings, 1, 'the heartbeat must not wait for the archive query behind the export');
+    assert.equal(pings, 2, 'heartbeat must not wait for the archive query behind the export');
     assert.ok(f.events.includes('activity'));
   } finally {
-    // Always unblock the export so a failing assertion cannot hang the runtime teardown.
     release.resolve();
   }
-  await started;
-  assert.equal(f.sent.length, 1, 'startup still completes once the export finishes');
+  await sampling;
 });

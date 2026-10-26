@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { querySummary, queryComparison, type QueryKind } from './history-query.js';
 import { safeError } from './log.js';
 import { queryDashboard } from './dashboard-query.js';
+import { queryAvailability } from './availability.js';
 
 if (!parentPort) throw new Error('History worker requires a parent port.');
 const port = parentPort;
@@ -21,11 +22,13 @@ port.on('message', (request: { id: number; kind: QueryKind; minutes: number; now
     // All aggregate/bucket reads, including both comparison windows, share one WAL snapshot.
     db.exec('BEGIN');
     const result =
-      request.kind === 'dashboard'
-        ? queryDashboard(db, request.now)
-        : request.kind === 'summary'
-          ? querySummary(db, request.minutes, request.now)
-          : queryComparison(db, request.minutes, request.now);
+      request.kind === 'availability'
+        ? queryAvailability(db, request.now)
+        : request.kind === 'dashboard'
+          ? queryDashboard(db, request.now)
+          : request.kind === 'summary'
+            ? querySummary(db, request.minutes, request.now)
+            : queryComparison(db, request.minutes, request.now);
     db.exec('COMMIT');
     port.postMessage({ id: request.id, result });
   } catch (error) {

@@ -1,5 +1,6 @@
 import { Worker } from 'node:worker_threads';
 import type { PublicHistory } from './dashboard-data.js';
+import type { MonitoringAvailability } from './availability.js';
 import {
   HISTORY_WINDOWS,
   QUERY_CACHE_MS,
@@ -42,10 +43,13 @@ export class ArchiveReader implements HistoryReader {
   dashboard(): Promise<PublicHistory> {
     return this.request('dashboard', 0) as Promise<PublicHistory>;
   }
+  availability(): Promise<MonitoringAvailability> {
+    return this.request('availability', 0) as Promise<MonitoringAvailability>;
+  }
   private request(kind: QueryKind, minutes: number): Promise<QueryResult> {
     if (this.stopping) return Promise.reject(namedError('ArchiveReaderClosed'));
     if (
-      kind === 'dashboard'
+      kind === 'dashboard' || kind === 'availability'
         ? minutes !== 0
         : !(HISTORY_WINDOWS as readonly number[]).includes(minutes)
     )

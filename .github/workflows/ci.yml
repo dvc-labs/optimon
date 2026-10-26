@@ -45,6 +45,51 @@ jobs:
           DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
       - name: Build the runtime image
         run: docker build --tag optimon-ci .
+      - name: Validate the optional disk Compose variant without changing the default deployment
+        run: |
+          docker compose -f compose.yaml config --format json > /tmp/optimon-home-default.json
+          docker compose -f compose.disk.yaml config --format json > /tmp/optimon-home-disk.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = json.loads(Path('/tmp/optimon-home-default.json').read_text())
+          disk = json.loads(Path('/tmp/optimon-home-disk.json').read_text())
+          service = disk['services']['optiplex']
+          assert service['environment'].pop('HOST_DISK_PATH') == '/host-metrics/disk'
+          mount = next(m for m in service['volumes'] if m['target'] == '/host-metrics/disk')
+          service['volumes'].remove(mount)
+          assert mount['type'] == 'bind' and mount['source'] == '/var/lib/optimon-disk'
+          assert mount['read_only'] is True and mount.get('bind', {}).get('create_host_path', False) is False
+          disk['name'] = base['name']
+          assert disk == base, 'The opt-in disk variant must otherwise match the default home deployment'
+          PY
+        env:
+          DISCORD_TOKEN: ci-placeholder-not-a-real-token
+          APPLICATION_ID: '111111111111111111'
+          GUILD_ID: '222222222222222222'
+          CHANNEL_ID: '333333333333333333'
+          DASHBOARD_PUBLIC_URL: 'https://dashboard.test'
+      - name: Verify disk capacity through a real empty read-only host bind
+        run: |
+          optimon_disk_dir="$(mktemp -d)"
+          trap 'rmdir "$optimon_disk_dir"' EXIT
+          chmod 0555 "$optimon_disk_dir"
+          optimon_disk_expected="$(node --input-type=module -e 'import {statfs} from "node:fs/promises"; const s=await statfs(process.argv[1],{bigint:true}); console.log(JSON.stringify({type:String(s.type),total:String(s.blocks*s.bsize)}))' "$optimon_disk_dir")"
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --memory 256m --cpus 0.50 --pids-limit 64 \
+            --mount "type=bind,source=$optimon_disk_dir,target=/host-metrics/disk,readonly" \
+            --env "DISK_EXPECTED=$optimon_disk_expected" -i optimon-ci \
+            node --input-type=module < test/disk-container.mjs
+      - name: Verify real monitor startup without Discord or internet connectivity
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true --memory 256m --cpus 0.50 --pids-limit 64 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 \
+            --mount type=bind,source=/proc/stat,target=/host-metrics/proc/stat,readonly \
+            --mount type=bind,source=/proc/meminfo,target=/host-metrics/proc/meminfo,readonly \
+            --mount type=bind,source=/proc/loadavg,target=/host-metrics/proc/loadavg,readonly \
+            --mount type=bind,source=/proc/uptime,target=/host-metrics/proc/uptime,readonly \
+            -i optimon-ci node --input-type=module < test/startup-container.mjs
       - name: Smoke-test the runtime image without credentials
         run: |
           docker run --rm --network none --read-only --cap-drop ALL \

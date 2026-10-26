@@ -39,7 +39,7 @@ test('about, startup and stats share branding and distinguish host and process u
     assert.ok(!JSON.stringify(payload).includes(config.token));
   }
   const startup = embeds[1].toJSON();
-  assert.match(startup.description, /deployment or container restart/);
+  assert.match(startup.description, /first recorded start/);
   assert.equal(startup.fields.find((field) => field.name === 'Host uptime').value, '1d 1h 0m');
   assert.equal(startup.fields.find((field) => field.name === 'Bot uptime').value, '0h 0m');
   assert.equal(
@@ -129,6 +129,28 @@ test('bot delivery propagates permission failures so the scheduler can log and r
   await assert.rejects(reporter.send(statsEmbed(snapshot, config)), failure);
 });
 
+test('reporting resolves the current Discord client after an initial-login replacement', async () => {
+  const sent = [];
+  const make = (number) => ({
+    channels: {
+      fetch: async () => ({
+        id: config.channelId,
+        guildId: config.guildId,
+        isSendable: () => true,
+        isDMBased: () => false,
+        send: async () => {
+          sent.push(number);
+        },
+      }),
+    },
+  });
+  let client = make(1);
+  const reporter = new BotReporter(() => client, config);
+  client = make(2);
+  await reporter.send(statsEmbed(snapshot, config));
+  assert.deepEqual(sent, [2]);
+});
+
 test('report scheduling waits a full interval, never overlaps and stops cleanly', async () => {
   let runs = 0;
   let active = 0;
@@ -169,7 +191,7 @@ test('report scheduling waits a full interval, never overlaps and stops cleanly'
   }
 });
 
-test('health checks require Discord readiness and a fresh heartbeat', () => {
+test('health checks require sampling readiness and a fresh process heartbeat', () => {
   assert.equal(isHealthy({ ready: true, updatedAt: 1000 }, 2000), true);
   assert.equal(isHealthy({ ready: true, updatedAt: 1000 }, 100000), false);
   assert.equal(isHealthy({ ready: false, updatedAt: 1000 }, 2000), false);

@@ -155,3 +155,18 @@ test('successful and closed requests clear deadlines so stale timers cannot reti
   await Promise.all([pending, closing]);
   assert.equal(f.reader.worker, null);
 });
+
+test('availability runs in the read-only worker, coalesces and refreshes after the cache TTL', async (t) => {
+  const f = await fixture(t);
+  f.store.recordMetrics([point(f.now() - 6 * 3600_000), point(f.now())]);
+  const [a, b] = await Promise.all([f.reader.availability(), f.reader.availability()]);
+  assert.equal(a.windows[0].gapCount, 1);
+  a.windows[0].recentGaps.length = 0;
+  assert.equal(b.windows[0].recentGaps.length, 1);
+  assert.equal(f.reader.pending.size, 0);
+  assert.equal(f.store.db.prepare('PRAGMA user_version').get().user_version, 1);
+  f.advance();
+  const history = await f.reader.dashboard();
+  assert.equal(history.availability.lastAt, b.lastAt);
+  assert.ok(history.availability.generatedAt > b.generatedAt);
+});

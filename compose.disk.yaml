@@ -1,0 +1,154 @@
+# Optional standalone home variant; same services/volumes as compose.yaml, plus one empty read-only disk mount.
+# Prepare DISK_HOST_PATH first. See README.md before changing the existing Coolify resource.
+services:
+  optiplex:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 64
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?Set DISCORD_TOKEN in Coolify}
+      APPLICATION_ID: ${APPLICATION_ID:?Set APPLICATION_ID in Coolify}
+      CLIENT_ID: ${CLIENT_ID:-}
+      GUILD_ID: ${GUILD_ID:?Set GUILD_ID in Coolify}
+      CHANNEL_ID: ${CHANNEL_ID:?Set CHANNEL_ID in Coolify}
+      ADMIN_ID: ${ADMIN_ID:-}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
+      THERMAL_ALERTS_ENABLED: ${THERMAL_ALERTS_ENABLED:-true}
+      HOST_NAME: ${HOST_NAME:-optiplex}
+      STATS_INTERVAL_MINUTES: ${STATS_INTERVAL_MINUTES:-30}
+      HOST_PROC_PATH: /host-metrics/proc
+      TEMP_SENSOR_PATH: /host-metrics/hwmon
+      HISTORY_FILE: /app/data/history.json
+      DATABASE_FILE: /app/data/optiplex.sqlite
+      PUBLIC_DATA_PATH: /app/public-data
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the HTTPS dashboard URL in Coolify}
+      DISK_ALERTS_ENABLED: ${DISK_ALERTS_ENABLED:-true}
+      HOST_DISK_PATH: /host-metrics/disk
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+      NODE_OPTIONS: --max-old-space-size=128
+      TZ: Europe/Brussels
+    # SQLite WAL and legacy history share the existing local writable volume.
+    # Host counters and CPU sensors stay read-only.
+    # No host PID/network namespace, Docker socket, root directory mount or public ports.
+    volumes:
+      - type: bind
+        source: ${DISK_HOST_PATH:-/var/lib/optimon-disk}
+        target: /host-metrics/disk
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: history-data
+        target: /app/data
+      - type: volume
+        source: public-metrics
+        target: /app/public-data
+      - type: bind
+        source: /proc/stat
+        target: /host-metrics/proc/stat
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/meminfo
+        target: /host-metrics/proc/meminfo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/loadavg
+        target: /host-metrics/proc/loadavg
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /proc/uptime
+        target: /host-metrics/proc/uptime
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CORETEMP_HOST_PATH:-/sys/devices/platform/coretemp.0/hwmon}
+        target: /host-metrics/hwmon
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 32
+    environment:
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:?Set the HTTPS dashboard URL in Coolify}
+      DASHBOARD_PORT: "3443"
+      # The published port is bound to host loopback above; the process itself must listen on
+      # the container's own interface for Docker to reach it. Outside Compose it defaults to loopback.
+      DASHBOARD_BIND: 0.0.0.0
+      DASHBOARD_TLS_CERT: /app/tls/origin.pem
+      DASHBOARD_TLS_KEY: /app/tls/origin.key
+      DASHBOARD_TLS_CA: /app/tls/origin-ca.pem
+      PUBLIC_DATA_PATH: /app/public-data
+      NODE_OPTIONS: --max-old-space-size=64
+    # Only host-installed cloudflared (or an SSH local forward) should reach this.
+    # Keep Domains empty in Coolify; do not attach its public proxy.
+    ports:
+      - "127.0.0.1:3443:3443"
+    networks:
+      - dashboard
+    volumes:
+      - type: volume
+        source: public-metrics
+        target: /app/public-data
+        read_only: true
+      - type: bind
+        source: ${DASHBOARD_TLS_HOST_PATH:-/etc/optiplex-dashboard/tls}
+        target: /app/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  history-data:
+    driver: local
+  public-metrics:
+    driver: local
+
+networks:
+  dashboard:
+    driver: bridge

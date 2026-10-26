@@ -11,6 +11,7 @@ import { MonitorRuntime } from './runtime.js';
 import { TelemetryStore } from './telemetry.js';
 import { ArchiveReader } from './history-reader.js';
 import { DashboardPublisher } from './dashboard-publisher.js';
+import { DiscordConnection, DiscordClientSlot } from './discord-connection.js';
 
 if (existsSync('.env')) loadEnvFile('.env');
 let config: ReturnType<typeof loadConfig>;
@@ -39,11 +40,15 @@ try {
   process.exit(1);
 }
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-  allowedMentions: { parse: [] },
-  rest: { timeout: 15_000, retries: 2 },
-});
+const clients = new DiscordClientSlot(
+  () =>
+    new Client({
+      intents: [GatewayIntentBits.Guilds],
+      allowedMentions: { parse: [] },
+      rest: { timeout: 15_000, retries: 2 },
+    }),
+  attachClient,
+);
 const archive = new ArchiveReader(config.databaseFile);
 const runtime = new MonitorRuntime(config, {
   telemetry,
@@ -51,28 +56,39 @@ const runtime = new MonitorRuntime(config, {
   ...(config.publicDataPath
     ? { publisher: new DashboardPublisher(config.publicDataPath, () => archive.dashboard()) }
     : {}),
-  reporter: new BotReporter(client, config),
-  collect: () => collectSnapshot(config.procPath, config.sensorPath),
+  reporter: new BotReporter(() => clients.current, config),
+  collect: () => collectSnapshot(config.procPath, config.sensorPath, config.diskPath),
+  connectionStatus: () => connection.status(),
   gateway: {
-    applicationId: () => client.application?.id ?? '',
-    isReady: () => client.isReady(),
-    ping: () => client.ws.ping,
+    applicationId: () => clients.current.application?.id ?? '',
+    isReady: () => clients.current.isReady(),
+    ping: () => clients.current.ws.ping,
     register: async () => {
-      if (!client.application) throw new Error('Application is unavailable.');
-      await registerCommands(client.application.commands, config.guildId);
+      if (!clients.current.application) throw new Error('Application is unavailable.');
+      await registerCommands(clients.current.application.commands, config.guildId);
     },
     activity: (text) => {
-      client.user?.setActivity(text, { type: ActivityType.Watching });
+      clients.current.user?.setActivity(text, { type: ActivityType.Watching });
     },
-    destroy: () => client.destroy(),
+    destroy: () => connection.stop(),
   },
+});
+const connection = new DiscordConnection({
+  login: () => clients.login(config.token),
+  destroy: () => clients.destroy(),
+  isReady: () => clients.current.isReady(),
+  prepare: () => runtime.discordReady(),
 });
 let shuttingDown = false;
 function heartbeat(): void {
   try {
     writeFileSync(
       `${HEALTH_PATH}.tmp`,
-      JSON.stringify({ ready: runtime.ready, updatedAt: Date.now() }),
+      JSON.stringify({
+        ready: runtime.healthy,
+        discordReady: runtime.ready,
+        updatedAt: Date.now(),
+      }),
       { mode: 0o600 },
     );
     renameSync(`${HEALTH_PATH}.tmp`, HEALTH_PATH);
@@ -86,6 +102,7 @@ heartbeat();
 async function shutdown(code: number): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  connection.cancel();
   clearInterval(healthTimer);
   log('shutdown', { code });
   const deadline = setTimeout(() => process.exit(code), 15_000);
@@ -107,17 +124,36 @@ function stopAfterError(event: string, error: unknown): void {
     process.exit(1);
   });
 }
-client.once(Events.ClientReady, () => {
-  runtime.start().catch((error: unknown) => stopAfterError('initialization_failed', error));
-});
-client.on(Events.InteractionCreate, (interaction) => {
-  if (interaction.isChatInputCommand())
-    runtime
-      .dispatch(interaction)
-      .catch((error: unknown) => log('interaction_dispatch_failed', safeError(error)));
-});
-client.on(Events.Error, (error) => log('discord_client_error', safeError(error)));
-client.on(Events.ShardError, (error) => log('discord_gateway_error', safeError(error)));
+function attachClient(client: Client): void {
+  const current = (): boolean => client === clients.current && !shuttingDown;
+  client.on(Events.ClientReady, () => {
+    if (current())
+      connection
+        .ready()
+        .catch((error: unknown) => log('discord_setup_retry_failed', safeError(error)));
+  });
+  client.on(Events.ShardDisconnect, (event, shard) => {
+    if (current()) connection.disconnected(event.code, shard);
+  });
+  client.on(Events.ShardReconnecting, (shard) => {
+    if (current()) connection.reconnecting(shard);
+  });
+  client.on(Events.ShardResume, (shard, replayed) => {
+    if (current()) connection.resumed(shard, replayed);
+  });
+  client.on(Events.InteractionCreate, (interaction) => {
+    if (current() && interaction.isChatInputCommand())
+      runtime
+        .dispatch(interaction)
+        .catch((error: unknown) => log('interaction_dispatch_failed', safeError(error)));
+  });
+  client.on(Events.Error, (error) => {
+    if (current()) log('discord_client_error', safeError(error));
+  });
+  client.on(Events.ShardError, (error) => {
+    if (current()) log('discord_gateway_error', safeError(error));
+  });
+}
 process.once('SIGTERM', () => {
   shutdown(0).catch((error: unknown) => stopAfterError('shutdown_failed', error));
 });
@@ -128,4 +164,8 @@ process.once('uncaughtException', (error) => stopAfterError('uncaught_exception'
 process.once('unhandledRejection', (error: unknown) =>
   stopAfterError('unhandled_rejection', error),
 );
-client.login(config.token).catch((error: unknown) => stopAfterError('login_failed', error));
+runtime
+  .start()
+  .then(heartbeat)
+  .catch((error: unknown) => stopAfterError('monitor_initialization_failed', error));
+connection.start().catch((error: unknown) => stopAfterError('discord_retry_failed', error));

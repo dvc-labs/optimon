@@ -3,6 +3,7 @@ export interface ReportStatus {
   lastReportAt: number | null;
   failures: number;
   thermalFailures: number;
+  diskFailures: number;
 }
 
 export class ReportControls {
@@ -10,6 +11,7 @@ export class ReportControls {
   lastReportAt: number | null = null;
   failures = 0;
   thermalFailures = 0;
+  diskFailures = 0;
 
   pause(minutes: number, now = Date.now()): number {
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440) {
@@ -30,6 +32,7 @@ export class ReportControls {
       lastReportAt: this.lastReportAt,
       failures: this.failures,
       thermalFailures: this.thermalFailures,
+      diskFailures: this.diskFailures,
     };
   }
 }

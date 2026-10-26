@@ -1,8 +1,38 @@
 import test from 'node:test';
+import { DiskWatch } from '../dist/monitoring.js';
 import assert from 'node:assert/strict';
 import { MetricsCache, SNAPSHOT_CACHE_MS, ThermalWatch } from '../dist/monitoring.js';
 import { Cooldown, ReportControls } from '../dist/controls.js';
 import { snapshot } from './fixtures.mjs';
+
+test('disk alerts require sustained samples, hysteresis and confirmed delivery', () => {
+  const watch = new DiskWatch();
+  let at = Date.now();
+  const observe = (percent, delta = 60_000) => {
+    at += delta;
+    return watch.observe(
+      snapshot({
+        capturedAt: new Date(at),
+        disk:
+          percent === null
+            ? null
+            : { total: 100, used: percent, available: 100 - percent, percent },
+      }),
+    );
+  };
+  assert.equal(observe(92), null);
+  assert.equal(observe(null), null);
+  assert.equal(observe(92), null);
+  assert.equal(observe(93), 'hot');
+  assert.equal(observe(93), 'hot', 'failed delivery leaves the transition eligible');
+  watch.confirm('hot');
+  assert.equal(observe(89), null);
+  assert.equal(observe(85), null);
+  assert.equal(observe(84), 'recovered');
+  watch.confirm('recovered');
+  assert.equal(observe(95), null);
+  assert.equal(observe(96, 180_000), null, 'a long gap cannot establish a sustained transition');
+});
 
 test('concurrent metrics requests share a read and expire at the cache boundary', async () => {
   let now = snapshot().capturedAt.getTime();
@@ -137,12 +167,14 @@ test('report pauses are temporary, bounded and independent of report counters', 
     lastReportAt: 500,
     failures: 2,
     thermalFailures: 0,
+    diskFailures: 0,
   });
   assert.deepEqual(new ReportControls().status(), {
     pausedUntil: null,
     lastReportAt: null,
     failures: 0,
     thermalFailures: 0,
+    diskFailures: 0,
   });
 });
 

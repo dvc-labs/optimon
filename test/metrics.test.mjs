@@ -12,6 +12,11 @@ import {
   parseUptime,
   readTemperatures,
   collectSnapshot,
+  cpuDetails,
+  parseHostState,
+  parseMemoryBreakdown,
+  diskFromStatfs,
+  readDisk,
 } from '../dist/metrics.js';
 
 test('CPU sampling excludes double-counted guest counters and includes iowait in idle', () => {
@@ -74,7 +79,7 @@ test('missing host mounts produce explicit unavailable metrics, never container 
   assert.equal(snapshot.cpuPercent, null);
   assert.equal(snapshot.load, null);
   assert.equal(snapshot.swap, null);
-  assert.equal(snapshot.unavailable.length, 6);
+  assert.equal(snapshot.unavailable.length, 8);
   assert.ok(snapshot.botUptime >= 0);
 });
 
@@ -91,4 +96,60 @@ test('swap reports usage and handles hosts with no configured swap', () => {
   });
   assert.throws(() => parseSwap('SwapTotal: 1 kB\nSwapFree: 2 kB'));
   assert.throws(() => parseSwap('SwapTotal: 1 kB'));
+});
+
+test('per-core samples, iowait and steal use the same one-second counter deltas', () => {
+  const before = parseCpu(
+    'cpu 100 0 50 800 50 0 0 0\ncpu0 50 0 25 400 25 0 0 0\ncpu1 50 0 25 400 25 0 0 0\n',
+  );
+  const after = parseCpu(
+    'cpu 120 0 60 860 55 0 0 5\ncpu0 60 0 30 430 25 0 0 5\ncpu1 60 0 30 430 30 0 0 0\n',
+  );
+  assert.deepEqual(cpuDetails(before, after), {
+    iowaitPercent: 5,
+    stealPercent: 5,
+    perCore: [
+      { id: 0, percent: 40 },
+      { id: 1, percent: 30 },
+    ],
+  });
+  const decreased = { ...after, iowait: 1n };
+  assert.equal(cpuDetails(before, decreased).iowaitPercent, null);
+  const hotplugged = parseCpu('cpu 120 0 60 860 55 0 0 5\ncpu2 1 0 1 100 0 0 0 0\n');
+  assert.equal(cpuDetails(before, hotplugged).perCore[0].percent, null);
+});
+
+test('boot time and runnable tasks are host counters, not an invented boot count', () => {
+  assert.deepEqual(parseHostState('btime 1793000000\nprocs_running 2\n'), {
+    bootTime: 1793000000000,
+    runnableTasks: 2,
+  });
+  assert.deepEqual(parseHostState('btime nope\nprocs_running -1\n'), {
+    bootTime: null,
+    runnableTasks: null,
+  });
+  assert.equal(parseMemoryBreakdown('MemFree: 10 kB\nSReclaimable: 20 kB\n').free, 10240);
+  assert.equal(
+    parseMemoryBreakdown('MemFree: 10 kB\nSReclaimable: 20 kB\n').reclaimableSlab,
+    20480,
+  );
+  assert.equal(parseMemoryBreakdown('').slab, null);
+});
+
+test('disk percentages account for reserved blocks and reject impossible counters', () => {
+  const disk = diskFromStatfs({ bsize: 4096n, blocks: 100n, bfree: 20n, bavail: 10n });
+  assert.equal(disk.total, 409600);
+  assert.equal(disk.used, 327680);
+  assert.equal(disk.available, 40960);
+  assert.ok(Math.abs(disk.percent - 88.88888888888889) < 0.0001);
+  assert.throws(() => diskFromStatfs({ bsize: 4096n, blocks: 100n, bfree: 20n, bavail: 21n }));
+});
+
+test('an ordinary empty directory is refused instead of silently reporting the container filesystem', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'optimon-not-a-mount-'));
+  try {
+    await assert.rejects(readDisk(directory), /dedicated disk bind mount/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
