@@ -283,7 +283,7 @@ test('sampling starts before Discord setup; ready wiring registers and posts onl
   assert.equal(f.sent[0].title, 'Optimon is online');
   assert.deepEqual(
     f.jobs.map((job) => job.interval),
-    [60_000, 30 * 60_000],
+    [60_000, 60 * 60_000],
   );
   f.advance();
   await f.jobs[0].task();

@@ -9,7 +9,7 @@
 
 A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.2.**
 
-- One contextual startup embed, then host snapshots every **30 minutes**.
+- One contextual startup embed, then host snapshots every **60 minutes**.
 - Live CPU (including per-core, I/O wait and steal), RAM breakdown, **swap**, uptime, load and Intel CPU temperatures.
 - **All CPU/RAM/temperature sample history retained on disk**, comparisons, Discord latency checks and a playful server mood.
 - A live Discord activity showing temperature, CPU and RAM use.
@@ -54,7 +54,7 @@ all three public IDs are required explicitly; the Compose file has no personal I
 | `ADMIN_ID` | Optional **Discord user ID** allowed to use owner controls; blank disables them. |
 | `AUDIT_RETENTION_DAYS` | Command records expire after `90` days; `0` keeps them indefinitely. |
 | `HOST_NAME` | Display name; defaults to `optiplex`. |
-| `STATS_INTERVAL_MINUTES` | Defaults to `30`; allowed range `1`–`1440`. |
+| `STATS_INTERVAL_MINUTES` | Defaults to `60`; allowed range `1`–`1440`. |
 | `THERMAL_ALERTS_ENABLED` | `true` by default; set `false` to disable thermal notices. |
 | `HEARTBEAT_URL` | Optional secret HTTPS ping URL; blank disables external monitoring. |
 | `DASHBOARD_PUBLIC_URL` | HTTPS dashboard origin; required by both home Compose services, and used for `/about` and `/help` links. Optional only when running the bot outside Compose. |

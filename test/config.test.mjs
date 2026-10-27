@@ -11,9 +11,9 @@ const env = {
   CHANNEL_ID: '1562960345860153444',
 };
 
-test('bot reports default to thirty minutes with only the bot token and public IDs', () => {
+test('bot reports default to sixty minutes with only the bot token and public IDs', () => {
   const config = loadConfig(env);
-  assert.equal(config.intervalMinutes, 30);
+  assert.equal(config.intervalMinutes, 60);
   assert.equal(config.procPath, '/host-metrics/proc');
 });
 
