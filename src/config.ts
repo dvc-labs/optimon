@@ -47,7 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   ) {
     throw new Error('APPLICATION_ID and CLIENT_ID must match; only APPLICATION_ID is needed.');
   }
-  const interval = env.STATS_INTERVAL_MINUTES?.trim() || '30';
+  const interval = env.STATS_INTERVAL_MINUTES?.trim() || '60';
   if (!/^\d+$/.test(interval) || Number(interval) < 1 || Number(interval) > 1440) {
     throw new Error('STATS_INTERVAL_MINUTES must be an integer from 1 to 1440.');
   }

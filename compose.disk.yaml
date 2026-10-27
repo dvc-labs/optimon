@@ -29,7 +29,7 @@ services:
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
       THERMAL_ALERTS_ENABLED: ${THERMAL_ALERTS_ENABLED:-true}
       HOST_NAME: ${HOST_NAME:-optiplex}
-      STATS_INTERVAL_MINUTES: ${STATS_INTERVAL_MINUTES:-30}
+      STATS_INTERVAL_MINUTES: ${STATS_INTERVAL_MINUTES:-60}
       HOST_PROC_PATH: /host-metrics/proc
       TEMP_SENSOR_PATH: /host-metrics/hwmon
       HISTORY_FILE: /app/data/history.json
