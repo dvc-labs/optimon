@@ -1,4 +1,4 @@
-FROM node:24.22.1-bookworm-slim AS build
+FROM node:24.22.2-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --engine-strict
@@ -6,7 +6,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev --ignore-scripts --engine-strict
 
-FROM node:24.22.1-bookworm-slim AS runtime
+FROM node:24.22.2-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./package.json
@@ -25,7 +25,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
 CMD ["node", "dist/index.js"]
 
 # Public image: only the HTTP service and its allowlisted data contract.
-FROM node:24.22.1-bookworm-slim AS dashboard
+FROM node:24.22.2-bookworm-slim AS dashboard
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./package.json
@@ -39,7 +39,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 CMD ["node", "dist/dashboard.js"]
 
 # Static, public fallback for a separate VPS resource. It has no metric/archive volume.
-FROM node:24.22.1-bookworm-slim AS fallback
+FROM node:24.22.2-bookworm-slim AS fallback
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./package.json
