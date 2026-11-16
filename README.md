@@ -9,6 +9,8 @@
 
 A Discord companion and public web dashboard for the optiplex home lab. **Version 0.3.2.**
 
+[Terms of Service](docs/TERMS_OF_SERVICE.md) · [Privacy Policy](docs/PRIVACY_POLICY.md)
+
 - One contextual startup embed, then host snapshots every **60 minutes**.
 - Live CPU (including per-core, I/O wait and steal), RAM breakdown, **swap**, uptime, load and Intel CPU temperatures.
 - **All CPU/RAM/temperature sample history retained on disk**, comparisons, Discord latency checks and a playful server mood.
